@@ -1,3 +1,10 @@
 chekpoints/*
 data/*
+data/train.pkl
+data/valid.pkl
 logs/*
+.ipynb_checkpoints
+ml-venv-cpu
+__pycache__
+.venv
+.vscode/settings.json
