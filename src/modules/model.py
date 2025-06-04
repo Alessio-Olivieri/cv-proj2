@@ -295,7 +295,8 @@ class ViT(nn.Module):
         self.embedding = Embeddings(config)
         self.encoder = Encoder(config)
         self.classifier = nn.Linear(config["hidden_size"], config["num_classes"])
-        self.apply(self._init_weights)  # Weight initialization commented out
+        self.apply(self._init_weights)
+        self._set_module_names() 
 
     def forward(self, x: Int[Tensor, "b c h w"], output_attentions=False) -> Tuple[Float[Tensor, "b n_classes"], Optional[List]]:
         """Forward pass for Vision Transformer.
@@ -334,3 +335,11 @@ class ViT(nn.Module):
                 mean=0.0,
                 std=self.config["initializer_range"],
             ).to(module.cls_token.dtype)
+
+    def _set_module_names(self, prefix: str = "model"):
+        """
+        Recursively sets 'name' attribute for all modules using hierarchical naming
+        Format: "parent_name.child_name"
+        """
+        for name, module in self.named_modules(prefix=prefix):
+            module.name = name
