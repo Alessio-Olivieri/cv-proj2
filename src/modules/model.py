@@ -69,6 +69,8 @@ class Embeddings(nn.Module):
             torch.randn(self.patch_embeddings.num_patches + 1, config["hidden_size"])  * 0.02
         )
         self.dropout = nn.Dropout(config["hidden_dropout_prob"])
+        self.final_output = nn.Identity()
+
 
     def forward(self, x: Int[Tensor, "b c h w"]) -> Float[Tensor, "b n d"]:
         """Generates full input embeddings for transformer.
@@ -84,6 +86,7 @@ class Embeddings(nn.Module):
         x = torch.cat([cls_token, x], dim=1)  # (b, num_patches+1, hidden_size)
         x += self.position_embeddings  # Add position embeddings
         x = self.dropout(x)
+        x = self.final_output(x)
         return x
     
 
@@ -103,6 +106,7 @@ class AttentionHead(nn.Module):
         self.query = nn.Linear(hidden_size, attention_head_size, bias)
         self.value = nn.Linear(hidden_size, attention_head_size, bias)
         self.dropout = nn.Dropout(dropout)
+        self.final_output = nn.Identity()
 
     def forward(self, x: Float[Tensor, "b n d"]) -> Tuple[Float[Tensor, "b n d_head"], Float[Tensor, "b n n"]]:
         """Computes attention output and probabilities.
@@ -124,6 +128,7 @@ class AttentionHead(nn.Module):
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
         attention_probs = self.dropout(attention_probs)
         attention_output = torch.matmul(attention_probs, value)
+        attention_output = self.final_output(attention_output)
         return attention_output, attention_probs
     
 
@@ -193,6 +198,7 @@ class MLP(nn.Module):
         self.activation = nn.GELU()
         self.dense2 = nn.Linear(config["intermediate_size"], config["hidden_size"])
         self.dropout = nn.Dropout(config["hidden_dropout_prob"])
+        self.final_output = nn.Identity()
     
     def forward(self, x:Float[Tensor, "b n d"]) -> Float[Tensor, "b n d"]:
         """Applies two-layer MLP with GELU activation.
@@ -205,6 +211,7 @@ class MLP(nn.Module):
         """
         x = self.activation(self.dense1(x))
         x = self.dropout(self.dense2(x))
+        x = self.final_output(x)
         return x
         
 
@@ -336,10 +343,19 @@ class ViT(nn.Module):
                 std=self.config["initializer_range"],
             ).to(module.cls_token.dtype)
 
-    def _set_module_names(self, prefix: str = "model"):
+    def _set_module_names(self):
         """
         Recursively sets 'name' attribute for all modules using hierarchical naming
         Format: "parent_name.child_name"
         """
-        for name, module in self.named_modules(prefix=prefix):
+        for name, module in self.named_modules():
             module.name = name
+
+
+    def print_module_names(self):
+        """
+        Recursively sets 'name' attribute for all modules using hierarchical naming
+        Format: "parent_name.child_name"
+        """
+        for name, module in self.named_modules():
+            print(name)
