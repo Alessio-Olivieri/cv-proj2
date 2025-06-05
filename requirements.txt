@@ -1,3 +1,7 @@
 torch
 timm
 jaxtyping
+pygraphviz
+graphviz 
+libgraphviz-dev
+cmapy
