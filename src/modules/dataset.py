@@ -129,12 +129,3 @@ def load(
         dataset = gen_super_tiny(dataset, split, **tiny_kwargs)
         
     return dataset
-
-
-
-# print("train path: ", paths.DATA / ("train"+".pkl"))
-# pickle_path: Path = paths.DATA / ("train"+".pkl")
-# print(pickle_path)
-# print(pickle_path.is_file())
-
-
