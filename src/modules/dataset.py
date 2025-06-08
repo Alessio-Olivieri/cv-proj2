@@ -81,9 +81,14 @@ def gen_super_tiny(
     return hf_Dataset.from_dict({"image": all_images, "label": all_labels})
 
 
+def make_animal_dataset(split: Literal["train", "validation", "test"]):
+    
+
+
 def load(
     split: Literal["train", "validation", "test"],
     tiny: bool = False,
+    animal: bool = False,
     **tiny_kwargs
 ) -> hf_Dataset:
     """
