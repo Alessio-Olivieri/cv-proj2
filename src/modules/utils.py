@@ -116,7 +116,9 @@ class ComputationalGraph():
 
             for head_idx in range(self.num_attention_heads):
                 head_name = f"encoder.blocks.{block_idx}.attention.heads.{head_idx}.final_output"
-                self.nodes[head_name] = self.model.get_submodule(head_name)
+                head = self.model.get_submodule(head_name)
+                if head.pruned: continue
+                self.nodes[head_name] = head
         
         # 2. Build Edges based on ACDC's "potential influence" principle
         all_potential_source_nodes = [n for n in self.nodes if n != "classifier"]
@@ -147,6 +149,30 @@ class ComputationalGraph():
 
         for src_name in self.edges:
             self.edges[src_name] = sorted(list(set(self.edges[src_name])), key=self._get_node_info)
+    
+    # def prune_nodes(self, nodes_to_be_pruned: List["str"]):
+    #     for prune_node in nodes_to_be_pruned:
+    #         self.nodes.pop(prune_node)
+    #         self.edges.pop(prune_node)
+    #         block_id = int(prune_node.split(".")[2]) 
+    #         self.edges["embedding"].remove(prune_node)
+    #         if block_id <= 0: return
+    #         previous_block_id = block_id - 1
+    #         while True:
+    #             block = "encoder.blocks."+str(previous_block_id)
+    #             mlp = block+".mlp.final_output"
+    #             if mlp in self.edges:
+    #                 self.edges[mlp].remove(prune_node)
+    #             for head_id in range(self.num_attention_heads):
+    #                 head = block+".attention.heads."+str(head_id)+".final_output"
+    #                 if head in self.edges:
+    #                     self.edges[head].remove(prune_node)
+    #             if previous_block_id == 0:
+    #                 break
+    #             previous_block_id -= 1
+
+
+
 
     def __str__(self):
         output = []

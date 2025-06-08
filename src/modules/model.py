@@ -2,9 +2,11 @@ import torch
 import math
 import torch.nn as nn
 from torch.nn import Conv2d
-from typing import Callable, List, Tuple, Optional
+from typing import Callable, List, Tuple, Optional, Dict
 from jaxtyping import Float, Int
 from torch import Tensor
+
+from modules import utils
 
 class PatchEmbeddings(nn.Module):
     """Converts input images into patch embeddings.
@@ -47,7 +49,15 @@ class PatchEmbeddings(nn.Module):
         x = self.projection(x)  # (b, hidden_size, grid_size, grid_size)
         x = x.flatten(2).transpose(1, 2)  # (b, num_patches, hidden_size)
         return x
+
+
+class Identity(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.pruned = False
     
+    def forward(self, x):
+        return x
 
 class Embeddings(nn.Module):
     """Combines patch embeddings with class token and position embeddings.
@@ -69,7 +79,7 @@ class Embeddings(nn.Module):
             torch.randn(self.patch_embeddings.num_patches + 1, config["hidden_size"])  * 0.02
         )
         self.dropout = nn.Dropout(config["hidden_dropout_prob"])
-        self.final_output = nn.Identity()
+        self.final_output = Identity()
 
 
     def forward(self, x: Int[Tensor, "b c h w"]) -> Float[Tensor, "b n d"]:
@@ -106,7 +116,8 @@ class AttentionHead(nn.Module):
         self.query = nn.Linear(hidden_size, attention_head_size, bias)
         self.value = nn.Linear(hidden_size, attention_head_size, bias)
         self.dropout = nn.Dropout(dropout)
-        self.final_output = nn.Identity()
+        self.final_output = Identity()
+        self.pruned = False
 
     def forward(self, x: Float[Tensor, "b n d"]) -> Tuple[Float[Tensor, "b n d_head"], Float[Tensor, "b n n"]]:
         """Computes attention output and probabilities.
@@ -159,6 +170,8 @@ class MultiHeadAttention(nn.Module):
         self.output_projection = nn.Linear(self.all_head_size, self.hidden_size)
         self.output_dropout = nn.Dropout(config["hidden_dropout_prob"])
 
+        self.pruned_heads = set()
+
     def forward(self, x: Float[Tensor, "b n d"], output_attentions=False) -> Tuple[Float[Tensor, "b n d"], Optional[Float[Tensor, "b head n n"]]]:
         """Computes multi-head attention.
         
@@ -171,17 +184,59 @@ class MultiHeadAttention(nn.Module):
             attention_probs: Optional tensor of attention probabilities
                             (batch, num_attention_heads, seq_len, seq_len)
         """
-        attention_outputs = [head(x) for head in self.heads]
-        attention_output = torch.cat([a for a, _ in attention_outputs], dim=2)  # (b, n, all_head_size)
+        # If all heads are pruned, return zeros
+        if self.num_attention_heads == 0:
+            output_shape = (x.shape[0], x.shape[1], self.hidden_size)
+            return torch.zeros(output_shape, device=x.device, dtype=x.dtype), None
+        
+        active_attention_outputs, active_attention_probs = [], [] if output_attentions else None
+
+        for i, head in enumerate(self.heads):
+            if i in self.pruned_heads: continue
+            
+            # Compute only for active heads
+            attention_output, attention_probs = head(x)
+            active_attention_outputs.append(attention_output)
+            if output_attentions:
+                active_attention_probs.append(attention_probs)      
+
+        attention_output = torch.cat(active_attention_outputs, dim=2)
         attention_output = self.output_projection(attention_output)
-        attention_output = self.output_dropout(attention_output)
+        attention_output = self.output_dropout(attention_output) 
 
         if not output_attentions:
             return attention_output, None
         else:
-            attention_probs = torch.stack([attention_probs for _, attention_probs in attention_outputs], dim=1)
+            attention_probs = torch.stack([attention_probs for _, attention_probs in active_attention_outputs], dim=1)
             return attention_output, attention_probs
         
+        
+    def prune_heads(self, head_to_prune: List[int]):
+        head_to_prune = set(head_to_prune) - self.pruned_heads
+        if not head_to_prune: return
+        for i in head_to_prune:
+            self.heads[i].final_output.pruned = True
+
+        self.pruned_heads.update(head_to_prune)
+        self.num_attention_heads -= (len(head_to_prune))
+        if self.num_attention_heads == 0: return
+        self.all_head_size = self.num_attention_heads * self.attention_head_size
+        new_output_projection = nn.Linear(self.all_head_size, self.hidden_size)
+
+        # 4. Copy the weights from the old projection layer to the new one
+        original_indices = [i for i in range(len(self.heads)) if i not in self.pruned_heads]
+        with torch.no_grad():
+            # Slice the weight tensor to keep only the weights for active heads
+            kept_weight_slices = [
+                self.output_projection.weight.data[:, i * self.attention_head_size:(i + 1) * self.attention_head_size]
+                for i in original_indices
+            ]
+            new_output_projection.weight.data = torch.cat(kept_weight_slices, dim=1)
+            # Bias is not dependent on the input dimension, so it remains unchanged.
+            new_output_projection.bias.data = self.output_projection.bias.data.clone()
+        
+        self.output_projection = new_output_projection
+
 
 class MLP(nn.Module):
     """Transformer MLP (feed-forward) block.
@@ -198,7 +253,7 @@ class MLP(nn.Module):
         self.activation = nn.GELU()
         self.dense2 = nn.Linear(config["intermediate_size"], config["hidden_size"])
         self.dropout = nn.Dropout(config["hidden_dropout_prob"])
-        self.final_output = nn.Identity()
+        self.final_output = Identity()
     
     def forward(self, x:Float[Tensor, "b n d"]) -> Float[Tensor, "b n d"]:
         """Applies two-layer MLP with GELU activation.
@@ -284,7 +339,7 @@ class Encoder(nn.Module):
                 all_attentions.append(attention_probs)
         return x, all_attentions
     
-
+print(__name__)
 class ViT(nn.Module):
     """Vision Transformer model.
     
@@ -301,7 +356,7 @@ class ViT(nn.Module):
         self.config = config
         self.embedding = Embeddings(config)
         self.encoder = Encoder(config)
-        self.classifier = nn.Linear(config["hidden_size"], config["num_classes"])
+        self.classifier = nn.Linear(config["hidden_size"], config["num_classes"])        
         self.apply(self._init_weights)
         self._set_module_names() 
 
@@ -321,6 +376,23 @@ class ViT(nn.Module):
         # Use class token for classification
         x = self.classifier(x[:,0])  # (b, num_classes)
         return x, all_attentions
+
+        
+    def prune_heads(self, heads_to_prune: List[str]):
+        heads_to_prune = set(heads_to_prune)
+
+        to_be_pruned_per_block = [[] for block_id in range(len(self.encoder.blocks))]
+        print(to_be_pruned_per_block)
+        for head in heads_to_prune:
+            print(head)
+            block_id = int(head.split(".")[2])
+            head_id = int(head.split(".")[5])
+            to_be_pruned_per_block[block_id].append(head_id)
+
+        for block_id, block in enumerate(self.encoder.blocks):
+            block.attention.prune_heads(to_be_pruned_per_block[block_id])
+            
+        
     
     def _init_weights(self, module):
         if isinstance(module, (nn.Linear, nn.Conv2d)):
@@ -350,7 +422,6 @@ class ViT(nn.Module):
         """
         for name, module in self.named_modules():
             module.name = name
-
 
     def print_module_names(self):
         """

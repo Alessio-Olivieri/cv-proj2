@@ -5,3 +5,6 @@ pygraphviz
 graphviz 
 libgraphviz-dev
 cmapy
+
+
+# apt-get install python-dev graphviz libgraphviz-dev pkg-config
