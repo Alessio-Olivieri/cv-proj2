@@ -3,6 +3,7 @@ from typing import List, Tuple
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.nn.modules.module import RemovableHandle
 
 
@@ -24,6 +25,27 @@ class ReplaceActivations(ContextDecorator):
 
         return exc_type is None
 
+
+class PatchInput(ContextDecorator):
+    def __init__(self, module: Tuple[nn.Module, str], clean_src_act, corrupted_src_act):
+        self.module = module
+        self.clean_src_act = clean_src_act
+        self.corrupted_src_act = corrupted_src_act
+        self._hook_handle = None
+    
+    def patch_module(self, module, input, output):
+        residual_stream = input[0]
+        residual_stream = residual_stream - self.clean_src_act + self.corrupted_src_act
+        return residual_stream, input[1]
+
+    def __enter__(self):
+        self._hook_handle = self.module.register_forward_hook(self.patch_module)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._hook_handle:
+            self._hook_handle.remove()
+
+        return exc_type is None
 
 class SaveActivations(ContextDecorator):
     def __init__(self, modules: List[nn.Module,], verbose=False):
@@ -63,6 +85,48 @@ class SaveActivations(ContextDecorator):
         
         # Handle exceptions gracefully
         return exc_type is None
+    
 
+class SaveActivation(ContextDecorator):
+    def __init(self, module: nn.Module):
+        self.module: nn.Module = module
+        self.hook_handle: RemovableHandle = None
+        self.activations: torch.Tensor = None
 
-def test_edge(src, dst, good_input, bad_input):
+    def save_output(self, module, input, output):
+        self.activation = output.detach().copy()
+
+    def __enter__(self):
+        self.hook_handle = self.module.register_forward_hook(self.save_output)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._hook_handles:
+            for hook_handle in self._hook_handles:
+                hook_handle.remove()
+        
+        # Handle exceptions gracefully
+        return exc_type is None
+
+def run_ACDC(model, cg, tau, data_loader):
+
+    def test_edge(src: Tuple[nn.Module, str], dst: Tuple[nn.Module, str]):
+        clean_src_act = clean_activations[src]
+        corrupted_src_act = corrupted_activations[src]
+        with PatchInput(dst, clean_src_act, corrupted_src_act):
+            logits = model(clean_batch)     
+        kl_divergence = F.kl_div(logits, clean_logits)
+        return kl_divergence
+    
+    model.eval()
+    for corrupted_batch, clean_batch in data_loader:
+        with SaveActivations(cg.nodes) as ctx:
+            with torch.no_grad():
+                model(corrupted_batch)
+                corrupted_activations = ctx.activations
+                clean_logits = model(clean_batch)
+                clean_activations = ctx.activations
+    
+    for dest in cg.nodes:
+        for src in cg.get_incoming_edges(src):
+            test_edge(src, dest)

@@ -1,7 +1,7 @@
 from torch.utils.data import Dataset as torch_Dataset
 import torch
 from pathlib import Path
-from typing import Dict, List, Literal, Union, Tuple, Optional, Any
+from typing import Dict, List, Literal, Union, Tuple, Optional, Any, Set
 import pickle
 from datasets import load_dataset as hf_load_dataset, Dataset as hf_Dataset
 import warnings
@@ -16,8 +16,8 @@ IMAGES_PER_CLASS = {"validation":50,
                     }
 
 class TorchDatasetWrapper(torch_Dataset):
-    def __init__(self, hf_dataset: Any, transform: Optional[torch.nn.Module] = None) -> None:
-        self.hf_dataset = hf_dataset
+    def __init__(self, hf_dataset_v: hf_Dataset, transform: Optional[torch.nn.Module] = None) -> None:
+        self.hf_dataset = hf_dataset_v
         self.transform = transform
 
     def __repr__(self) -> str:
@@ -40,7 +40,7 @@ def gen_super_tiny(
     stop: int = 10,
     start: int = 0,
     classes: int = 200
-) -> torch_Dataset:
+):
     """
     Generates a super tiny version of a dataset by sampling images at regular intervals.
     
@@ -79,33 +79,6 @@ def gen_super_tiny(
     all_images = [image for image_class_dict in t for image in image_class_dict["image"]]
     all_labels = [image for image_class_dict in t for image in image_class_dict["label"]]
     return hf_Dataset.from_dict({"image": all_images, "label": all_labels})
-
-
-def load_animal_dataset(split: Literal["train", "validation", "test"]) -> Tuple[hf_Dataset, Dict]:
-    coarse_labels = {
-    "Aquatic": {0, 15, 16, 20, 40},
-    "Amphibians & Reptiles": {1, 2, 3, 4, 5},
-    "Arthropods": {7, 8, 9, 10, 32, 33, 34, 35, 36, 37, 38, 39, 184},
-    "Birds": {17, 18, 19, 170},
-    "Mammals": {11, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 187},
-    "Marine Life & Fossils": {6, 12, 13, 14, 190}
-    }
-    print(animal_labels)
-
-    pickle_path: Path = paths.DATA / ("animal_"+ split + ".pkl")
-
-    if pickle_path.is_file():
-        print("Loading animal dataset from", pickle_path)
-        dataset: hf_Dataset = pickle.load(open(pickle_path, "rb"))
-    else:
-        print("Generating animal dataset...")
-        animal_labels = list(coarse_labels.values())
-        animal_labels = animal_labels[0].union(*animal_labels[1:])
-        dataset: hf_Dataset = load(split)
-        dataset: hf_Dataset = dataset.filter(lambda x: x["label"] in animal_labels)
-        pickle.dump(dataset, open("../data/animal_valid", "wb"))
-    return dataset, coarse_labels
-
 
 
 def load(
@@ -158,6 +131,134 @@ def load(
         
     return dataset
 
+
+def load_animal_dataset(split: Literal["train", "validation", "test"]) -> Tuple[hf_Dataset, Dict]:
+    coarse_labels = {
+    "Aquatic": {0, 15, 16, 20, 40},
+    "Amphibians & Reptiles": {1, 2, 3, 4, 5},
+    "Arthropods": {7, 8, 9, 10, 32, 33, 34, 35, 36, 37, 38, 39, 184},
+    "Birds": {17, 18, 19, 170},
+    "Mammals": {11, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 187},
+    "Marine Life & Fossils": {6, 12, 13, 14, 190}
+    }
+    
+    pickle_path: Path = paths.DATA / ("animal_"+ split + ".pkl")
+
+    if pickle_path.is_file():
+        print("Loading animal dataset from", pickle_path)
+        dataset: hf_Dataset = pickle.load(open(pickle_path, "rb"))
+    else:
+        print("Generating animal dataset...")
+        animal_labels = list(coarse_labels.values())
+        animal_labels = animal_labels[0].union(*animal_labels[1:])
+        dataset: hf_Dataset = load(split)
+        dataset: hf_Dataset = dataset.filter(lambda x: x["label"] in animal_labels)
+        pickle.dump(dataset, open("../data/animal_valid", "wb"))
+    return dataset, coarse_labels
+
+class ContrastiveWrapper(torch_Dataset):
+    """
+    A Dataset wrapper for contrastive learning tasks.
+
+    For a given index, it returns a tuple containing:
+    1. The "good" sample (anchor) corresponding to that index.
+    2. A list of "bad" samples (negatives), with one randomly chosen sample
+       from each of the other classes.
+
+    Args:
+        dataset (torch_Dataset): The base dataset to wrap. It is expected
+            to return a tuple of (data, label) from its __getitem__ method.
+        coarse_labels (Dict[str, Set[int]]): A dictionary mapping coarse
+            class names to a set of their fine-grained integer labels.
+    """
+    def __init__(self, dataset: torch_Dataset, coarse_labels: Dict[str, Set[int]]):
+        self.dataset = dataset
+        self.coarse_labels = coarse_labels
+        self.coarse_class_names = list(coarse_labels.keys())
+
+        print("Indexing dataset by class for contrastive sampling...")
+        self._build_indices()
+        print("Indexing complete.")
+
+    def _build_indices(self):
+        """
+        Builds internal mappings for efficient sampling.
+        1. `self.label_to_coarse_class`: Maps a fine-grained label (int) to its coarse class name (str).
+        2. `self.class_to_indices`: Maps a coarse class name (str) to a list of dataset indices.
+        """
+        self.label_to_coarse_class: Dict[int, str] = {}
+        for class_name, fine_labels in self.coarse_labels.items():
+            for label in fine_labels:
+                self.label_to_coarse_class[label] = class_name
+
+        self.class_to_indices: Dict[str, List[int]] = {name: [] for name in self.coarse_class_names}
+        for i in range(len(self.dataset)):
+            # We access the label directly from the underlying dataset's __getitem__
+            # This can be slow but is robust. For HuggingFace datasets,
+            # accessing a column is faster: self.dataset.hf_dataset['label'][i]
+            try:
+                # Assuming the dataset's __getitem__ returns (data, label)
+                _data, fine_label = self.dataset[i]
+            except Exception as e:
+                print(f"Could not retrieve label for index {i}. Error: {e}")
+                continue
+            
+            if fine_label in self.label_to_coarse_class:
+                coarse_class = self.label_to_coarse_class[fine_label]
+                self.class_to_indices[coarse_class].append(i)
+
+    def __len__(self) -> int:
+        """Returns the total number of samples in the dataset."""
+        return len(self.dataset)
+
+    def __getitem__(self, idx: int) -> Tuple[Tuple[Any, int], List[Tuple[Any, int]]]:
+        """
+        Returns a good sample and a list of bad samples.
+
+        Args:
+            idx (int): The index of the "good" sample (anchor).
+
+        Returns:
+            A tuple containing:
+            - good_sample (Tuple[Any, int]): The anchor sample (data, fine_label).
+            - bad_samples (List[Tuple[Any, int]]): A list of negative samples,
+              one from each other class.
+        """
+        # 1. Get the "good" sample (anchor)
+        good_sample = self.dataset[idx]
+        _good_data, good_fine_label = good_sample
+        
+        # 2. Identify the coarse class of the good sample
+        anchor_coarse_class = self.label_to_coarse_class.get(good_fine_label)
+        if anchor_coarse_class is None:
+            raise ValueError(f"Label {good_fine_label} at index {idx} not found in coarse_labels mapping.")
+
+        # 3. Get one "bad" sample (negative) from each of the other classes
+        bad_samples = []
+        for coarse_class_name in self.coarse_class_names:
+            if coarse_class_name == anchor_coarse_class:
+                continue  # Skip the anchor's own class
+
+            # Get the list of indices for this "other" class
+            candidate_indices = self.class_to_indices[coarse_class_name]
+            if not candidate_indices:
+                # This can happen if a split (e.g., test) doesn't contain a certain class
+                continue
+            
+            # Randomly choose one index from the list
+            random_bad_idx = torch.random.choice(candidate_indices)
+            
+            # Get the sample
+            bad_sample = self.dataset[random_bad_idx]
+            bad_samples.append(bad_sample)
+
+        return good_sample, bad_samples
+        
+    def __repr__(self) -> str:
+        return (f"ContrastiveWrapper(\n"
+                f"  Underlying Dataset: {repr(self.dataset)}\n"
+                f"  Coarse Classes: {self.coarse_class_names}\n"
+                f"  Number of samples: {len(self)}\n)")
 
 
 
