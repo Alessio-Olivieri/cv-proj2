@@ -81,8 +81,31 @@ def gen_super_tiny(
     return hf_Dataset.from_dict({"image": all_images, "label": all_labels})
 
 
-def make_animal_dataset(split: Literal["train", "validation", "test"]):
-    
+def load_animal_dataset(split: Literal["train", "validation", "test"]) -> Tuple[hf_Dataset, Dict]:
+    coarse_labels = {
+    "Aquatic": {0, 15, 16, 20, 40},
+    "Amphibians & Reptiles": {1, 2, 3, 4, 5},
+    "Arthropods": {7, 8, 9, 10, 32, 33, 34, 35, 36, 37, 38, 39, 184},
+    "Birds": {17, 18, 19, 170},
+    "Mammals": {11, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 187},
+    "Marine Life & Fossils": {6, 12, 13, 14, 190}
+    }
+    print(animal_labels)
+
+    pickle_path: Path = paths.DATA / ("animal_"+ split + ".pkl")
+
+    if pickle_path.is_file():
+        print("Loading animal dataset from", pickle_path)
+        dataset: hf_Dataset = pickle.load(open(pickle_path, "rb"))
+    else:
+        print("Generating animal dataset...")
+        animal_labels = list(coarse_labels.values())
+        animal_labels = animal_labels[0].union(*animal_labels[1:])
+        dataset: hf_Dataset = load(split)
+        dataset: hf_Dataset = dataset.filter(lambda x: x["label"] in animal_labels)
+        pickle.dump(dataset, open("../data/animal_valid", "wb"))
+    return dataset, coarse_labels
+
 
 
 def load(
@@ -134,3 +157,207 @@ def load(
         dataset = gen_super_tiny(dataset, split, **tiny_kwargs)
         
     return dataset
+
+
+
+
+tiny_imagenet_classes = """red fish
+salamander
+frog 1
+frog 2
+crocodile
+snake
+fossil
+scorpion
+spider
+tarantula
+centipede
+koala
+medusa
+coral
+snail(without shell)
+lobster
+lobster
+Black-necked stork
+penguin
+albatro
+dolphin(?)
+yorkshire
+golden retriver
+labrador
+german shepherd
+Large poodle
+cat 1
+cat 2
+cat 3
+tiger
+leon
+bear
+Ladybugs
+cricket
+Bacillus rossius
+cockroach
+mantis
+dragonfly
+butterfly
+leaf butterfly
+marine worm
+rabbit
+pig
+cow
+buffalo
+ovis
+darling
+gazelle
+camel
+mokey 1
+monkey 2
+monkey 3
+elephant
+red panda
+abacus
+graduate
+altar
+backpack
+stairs
+barber
+house
+barrel
+basketball
+bathub
+car
+lighthouse
+becker
+beer
+bikini
+binoculars
+bird house
+stravagante
+geroglyphs
+bucket
+train modern
+meat
+holidays
+cannon
+woman sweater
+ATM
+CD Player
+chest
+chirstmas sock
+cave
+keyboard
+candies
+car without roof
+crane
+panorama
+monitor
+dining table
+gym
+flag
+fly
+fountain
+train cargo
+pan
+fluffy jacket
+gas mask
+go kart
+boat
+hourglass
+smartphone or mp3
+cab
+giapponesi
+lamp
+tracotr
+coast guard
+limousine
+compass
+child games
+soldier
+sexy woman
+truck
+people photo
+pillar
+flute
+organo
+parkimeter
+public phone
+fence
+drugs
+toilet
+ambulance
+women clothes
+analcholic drink
+no idea
+rocket
+punching bag
+fridge?
+TV controller
+chair
+football
+sandals
+school bus
+scoreboard
+sewing machine
+sub mask
+socks
+mexican hat
+strange machine
+spider net
+supercar
+bridge
+chronometer
+eye glasses
+bridge2
+swimming costume
+syringe
+teapot
+teddybear
+medieval houses
+festival
+tractor 2
+triumph arc
+tram
+turnstiles
+umbrella
+pope
+acquedupt
+volleyball
+water
+water cystern
+hot pan
+spoon
+comics
+fishing
+vegetarian dish?
+sweet dish
+icecream
+duck
+playing instrument
+party dishes
+crauti
+plate with food
+cabbage
+peppers
+lemon
+fruit
+pomegranate
+lasagna?
+pizza
+pie
+coffe
+bee
+kitchen towel
+idk
+chihuaua
+winter panorama
+ravine
+reef
+lake
+sea
+acorns
+cleaning
+mushroom
+nails
+chains
+worm
+orange"""

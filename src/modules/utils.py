@@ -49,7 +49,7 @@ class SaveActivations(ContextDecorator):
         return {module.name:activation for module, activation in zip(self.modules, self.activations)}
 
     def save_outputs(self, module, input, output):
-        self.activations.append(output)
+        self.activations.append(output.detach().clone())
         if self.verbose:
             print(f"Saving output from {module.__class__.__name__}: {module.name}")
             print(f"ouptut is ot type:", type(output))
