@@ -6,6 +6,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.modules.module import RemovableHandle
 
+from modules import utils
+
 
 class ReplaceActivations(ContextDecorator):
     def __init__(self, module: Tuple[nn.Module, str], new_activation):
@@ -108,7 +110,9 @@ class SaveActivation(ContextDecorator):
         # Handle exceptions gracefully
         return exc_type is None
 
-def run_ACDC(model, cg, tau, data_loader):
+def run_ACDC(model, tau, data_loader):
+
+    computation_graph = utils.ComputationalGraph(model)
 
     def test_edge(src: Tuple[nn.Module, str], dst: Tuple[nn.Module, str]):
         clean_src_act = clean_activations[src]
@@ -119,14 +123,17 @@ def run_ACDC(model, cg, tau, data_loader):
         return kl_divergence
     
     model.eval()
-    for corrupted_batch, clean_batch in data_loader:
-        with SaveActivations(cg.nodes) as ctx:
+    # if data_loader is the validation: 2900 total samples * 6 contrastive samples * num of edges to test
+    for corrupted_batches, clean_batch in data_loader:
+        corrupted_activations = []
+        with SaveActivations(computation_graph.nodes) as ctx:
             with torch.no_grad():
-                model(corrupted_batch)
-                corrupted_activations = ctx.activations
+                for corrupted_batch in corrupted_batches:
+                    model(corrupted_batch)
+                    corrupted_activations.append(ctx.activations)
                 clean_logits = model(clean_batch)
                 clean_activations = ctx.activations
     
-    for dest in cg.nodes:
-        for src in cg.get_incoming_edges(src):
-            test_edge(src, dest)
+        for dest in computation_graph.nodes:
+            for src in ccomputation_graphg.get_incoming_edges(src):
+                test_edge(src, dest)

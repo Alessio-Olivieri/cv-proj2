@@ -7,6 +7,8 @@ import numpy as np
 import pygraphviz as pgv
 from IPython.display import display
 
+from modules import model
+
 try:
     import cmapy
 except ImportError:
@@ -42,10 +44,10 @@ def abbreviate_node_name(full_name: str) -> str:
 # --- Rewritten ComputationalGraph Class ---
 
 class ComputationalGraph():
-    def __init__(self, model, num_hidden_layers: int, num_attention_heads: int):
+    def __init__(self, model: model.ViT):
         self.model = model
-        self.num_hidden_layers = num_hidden_layers
-        self.num_attention_heads = num_attention_heads
+        self.num_hidden_layers = model.config["num_hidden_layers"]
+        self.num_attention_heads = model.config["num_attention_heads"]
         
         # Store edges as a list of (source, destination) tuples
         self.edges = []

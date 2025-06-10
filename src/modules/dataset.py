@@ -5,6 +5,8 @@ from typing import Dict, List, Literal, Union, Tuple, Optional, Any, Set
 import pickle
 from datasets import load_dataset as hf_load_dataset, Dataset as hf_Dataset
 import warnings
+import random
+
 if __name__ == "__main__":
     import paths
 else:
@@ -40,7 +42,7 @@ def gen_super_tiny(
     stop: int = 10,
     start: int = 0,
     classes: int = 200
-):
+) -> hf_Dataset:
     """
     Generates a super tiny version of a dataset by sampling images at regular intervals.
     
@@ -86,7 +88,7 @@ def load(
     tiny: bool = False,
     animal: bool = False,
     **tiny_kwargs
-) -> hf_Dataset:
+) -> torch_Dataset:
     """
     Loads the Tiny ImageNet dataset either from a local pickle cache or from Hugging Face.
     
@@ -129,10 +131,10 @@ def load(
         # Pass the tiny_kwargs to gen_super_tiny
         dataset = gen_super_tiny(dataset, split, **tiny_kwargs)
         
-    return dataset
+    return TorchDatasetWrapper(dataset)
 
 
-def load_animal_dataset(split: Literal["train", "validation", "test"]) -> Tuple[hf_Dataset, Dict]:
+def load_animal_dataset(split: Literal["train", "validation", "test"], tiny=False, **tiny_kwargs) -> Tuple[hf_Dataset, Dict]:
     coarse_labels = {
     "Aquatic": {0, 15, 16, 20, 40},
     "Amphibians & Reptiles": {1, 2, 3, 4, 5},
@@ -154,7 +156,12 @@ def load_animal_dataset(split: Literal["train", "validation", "test"]) -> Tuple[
         dataset: hf_Dataset = load(split)
         dataset: hf_Dataset = dataset.filter(lambda x: x["label"] in animal_labels)
         pickle.dump(dataset, open("../data/animal_valid", "wb"))
-    return dataset, coarse_labels
+
+    if tiny:
+        # Pass the tiny_kwargs to gen_super_tiny
+        dataset = gen_super_tiny(dataset, split, **tiny_kwargs)
+
+    return TorchDatasetWrapper(dataset), coarse_labels
 
 class ContrastiveWrapper(torch_Dataset):
     """
@@ -190,6 +197,7 @@ class ContrastiveWrapper(torch_Dataset):
         for class_name, fine_labels in self.coarse_labels.items():
             for label in fine_labels:
                 self.label_to_coarse_class[label] = class_name
+        print(self.label_to_coarse_class)
 
         self.class_to_indices: Dict[str, List[int]] = {name: [] for name in self.coarse_class_names}
         for i in range(len(self.dataset)):
@@ -197,12 +205,11 @@ class ContrastiveWrapper(torch_Dataset):
             # This can be slow but is robust. For HuggingFace datasets,
             # accessing a column is faster: self.dataset.hf_dataset['label'][i]
             try:
-                # Assuming the dataset's __getitem__ returns (data, label)
                 _data, fine_label = self.dataset[i]
             except Exception as e:
                 print(f"Could not retrieve label for index {i}. Error: {e}")
                 continue
-            
+
             if fine_label in self.label_to_coarse_class:
                 coarse_class = self.label_to_coarse_class[fine_label]
                 self.class_to_indices[coarse_class].append(i)
@@ -227,6 +234,7 @@ class ContrastiveWrapper(torch_Dataset):
         # 1. Get the "good" sample (anchor)
         good_sample = self.dataset[idx]
         _good_data, good_fine_label = good_sample
+        print(good_sample)
         
         # 2. Identify the coarse class of the good sample
         anchor_coarse_class = self.label_to_coarse_class.get(good_fine_label)
@@ -246,7 +254,7 @@ class ContrastiveWrapper(torch_Dataset):
                 continue
             
             # Randomly choose one index from the list
-            random_bad_idx = torch.random.choice(candidate_indices)
+            random_bad_idx = candidate_indices[random.randrange(len(candidate_indices))]
             
             # Get the sample
             bad_sample = self.dataset[random_bad_idx]
