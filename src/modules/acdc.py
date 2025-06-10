@@ -115,6 +115,10 @@ def run_ACDC(model, tau, data_loader):
     computation_graph = utils.ComputationalGraph(model)
 
     def test_edge(src: Tuple[nn.Module, str], dst: Tuple[nn.Module, str]):
+        """
+        Tests the edge from the good class with all the bad classes edges.
+        The resulting kl is the average of the kl divergences
+        """
         clean_src_act = clean_activations[src]
         corrupted_src_act = corrupted_activations[src]
         with PatchInput(dst, clean_src_act, corrupted_src_act):
@@ -134,6 +138,6 @@ def run_ACDC(model, tau, data_loader):
                 clean_logits = model(clean_batch)
                 clean_activations = ctx.activations
     
-        for dest in computation_graph.nodes:
-            for src in ccomputation_graphg.get_incoming_edges(src):
-                test_edge(src, dest)
+                for dest in computation_graph.nodes: # they should be reverse order
+                    for src in computation_graph.get_incoming_edges(src): #TODO get_incoming_edges
+                        kl_divergence = test_edge(src, dest)

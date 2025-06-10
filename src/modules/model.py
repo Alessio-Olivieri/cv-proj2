@@ -6,8 +6,6 @@ from typing import Callable, List, Tuple, Optional, Dict
 from jaxtyping import Float, Int
 from torch import Tensor
 
-from modules import utils
-
 class PatchEmbeddings(nn.Module):
     """Converts input images into patch embeddings.
     
@@ -339,7 +337,6 @@ class Encoder(nn.Module):
                 all_attentions.append(attention_probs)
         return x, all_attentions
     
-print(__name__)
 class ViT(nn.Module):
     """Vision Transformer model.
     

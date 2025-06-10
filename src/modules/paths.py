@@ -1,5 +1,8 @@
 from pathlib import Path
 
 print(__file__)
-ROOT = Path(__file__).parent.parent.parent
-DATA = Path(ROOT / "data")
+root = Path(__file__).parent.parent.parent
+data = Path(root / "data")
+logs = Path(root / "logs")
+chekpoints = Path(root / "checkpoints")
+

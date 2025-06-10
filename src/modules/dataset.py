@@ -1,7 +1,7 @@
 from torch.utils.data import Dataset as torch_Dataset
 import torch
 from pathlib import Path
-from typing import Dict, List, Literal, Union, Tuple, Optional, Any, Set
+from typing import Dict, List, Literal, Union, Tuple, Optional, Any, Set, Callable
 import pickle
 from datasets import load_dataset as hf_load_dataset, Dataset as hf_Dataset
 import warnings
@@ -86,7 +86,7 @@ def gen_super_tiny(
 def load(
     split: Literal["train", "validation", "test"],
     tiny: bool = False,
-    animal: bool = False,
+    transform: Callable = None,
     **tiny_kwargs
 ) -> torch_Dataset:
     """
@@ -131,10 +131,10 @@ def load(
         # Pass the tiny_kwargs to gen_super_tiny
         dataset = gen_super_tiny(dataset, split, **tiny_kwargs)
         
-    return TorchDatasetWrapper(dataset)
+    return TorchDatasetWrapper(dataset, transform)
 
 
-def load_animal_dataset(split: Literal["train", "validation", "test"], tiny=False, **tiny_kwargs) -> Tuple[hf_Dataset, Dict]:
+def load_animal_dataset(split: Literal["train", "validation", "test"], transform:Callable, tiny=False, **tiny_kwargs) -> Tuple[hf_Dataset, Dict]:
     coarse_labels = {
     "Aquatic": {0, 15, 16, 20, 40},
     "Amphibians & Reptiles": {1, 2, 3, 4, 5},
@@ -161,7 +161,7 @@ def load_animal_dataset(split: Literal["train", "validation", "test"], tiny=Fals
         # Pass the tiny_kwargs to gen_super_tiny
         dataset = gen_super_tiny(dataset, split, **tiny_kwargs)
 
-    return TorchDatasetWrapper(dataset), coarse_labels
+    return TorchDatasetWrapper(dataset, transform), coarse_labels
 
 class ContrastiveWrapper(torch_Dataset):
     """

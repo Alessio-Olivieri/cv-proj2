@@ -5,6 +5,7 @@ pygraphviz
 graphviz 
 libgraphviz-dev
 cmapy
+tensorboard
 
 
 # apt-get install python-dev graphviz libgraphviz-dev pkg-config
