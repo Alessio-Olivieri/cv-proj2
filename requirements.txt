@@ -3,9 +3,10 @@ timm
 jaxtyping
 pygraphviz
 graphviz 
-libgraphviz-dev
 cmapy
 tensorboard
+ipykernel
+datasets
 
 
 # apt-get install python-dev graphviz libgraphviz-dev pkg-config
