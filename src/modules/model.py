@@ -400,17 +400,17 @@ class ViT(nn.Module):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
         elif isinstance(module, Embeddings):
-            module.position_embeddings.data = nn.init.trunc_normal_(
-                module.position_embeddings.data.to(torch.float32),
+            nn.init.trunc_normal_(
+                module.position_embeddings,
                 mean=0.0,
                 std=self.config["initializer_range"],
-            ).to(module.position_embeddings.dtype)
+            )
 
-            module.cls_token.data = nn.init.trunc_normal_(
-                module.cls_token.data.to(torch.float32),
+            nn.init.trunc_normal_(
+                module.cls_token,
                 mean=0.0,
                 std=self.config["initializer_range"],
-            ).to(module.cls_token.dtype)
+            )
 
     def _set_module_names(self):
         """

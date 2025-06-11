@@ -69,7 +69,7 @@ class Trainer:
 
             self.optimizer.zero_grad()
 
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast(device_type=self.device.type):
                 outputs, _ = self.model(images)
                 loss = self.criterion(outputs, labels)
 
@@ -126,7 +126,7 @@ class Trainer:
                 images = images.to(self.device, non_blocking=True)
                 labels = labels.to(self.device, non_blocking=True)
 
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast(device_type=self.device.type):
                     outputs, _ = self.model(images)
                     loss = self.val_criterion(outputs, labels)
 
