@@ -131,7 +131,7 @@ def load(
         # Pass the tiny_kwargs to gen_super_tiny
         dataset = gen_super_tiny(dataset, split, **tiny_kwargs)
         
-    return TorchDatasetWrapper(dataset, transform)
+    return dataset
 
 
 def load_animal_dataset(split: Literal["train", "validation", "test"], transform:Callable, tiny=False, **tiny_kwargs) -> Tuple[hf_Dataset, Dict]:
@@ -161,7 +161,7 @@ def load_animal_dataset(split: Literal["train", "validation", "test"], transform
         # Pass the tiny_kwargs to gen_super_tiny
         dataset = gen_super_tiny(dataset, split, **tiny_kwargs)
 
-    return TorchDatasetWrapper(dataset, transform), coarse_labels
+    return dataset, coarse_labels
 
 class ContrastiveWrapper(torch_Dataset):
     """
