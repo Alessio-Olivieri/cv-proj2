@@ -116,7 +116,7 @@ def load(
         >>> val_data = load("validation", tiny=True, stop=5)
         >>> print(f"Train samples: {len(train_data)}, Val samples: {len(val_data)}")
     """
-    pickle_path: Path = paths.DATA / (split + ".pkl")
+    pickle_path: Path = paths.data / (split + ".pkl")
 
     if pickle_path.is_file():
         print("Loading dataset from", pickle_path)
@@ -144,7 +144,7 @@ def load_animal_dataset(split: Literal["train", "validation", "test"], transform
     "Marine Life & Fossils": {6, 12, 13, 14, 190}
     }
     
-    pickle_path: Path = paths.DATA / ("animal_"+ split + ".pkl")
+    pickle_path: Path = paths.data / ("animal_"+ split + ".pkl")
 
     if pickle_path.is_file():
         print("Loading animal dataset from", pickle_path)

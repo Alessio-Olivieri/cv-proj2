@@ -7,6 +7,8 @@ from torch.optim.lr_scheduler import _LRScheduler
 from torch.utils.tensorboard import SummaryWriter
 from typing import Tuple, Optional, Dict, Any, Union
 
+from modules import paths
+
 class Trainer:
     def __init__(
         self,
@@ -15,6 +17,7 @@ class Trainer:
         val_loader: DataLoader,
         optimizer: Optimizer,
         criterion: torch.nn.Module,
+        val_criterion: torch.nn.Module,
         scheduler: _LRScheduler,
         writer: SummaryWriter,
         device: torch.device,
@@ -22,6 +25,7 @@ class Trainer:
         num_epochs: int,
         log_interval: int,
         model_dir: str,
+        early_stop_patience: int,
         checkpoint_interval: int = None,
         mixup_fn: Optional[callable] = None,
         model_name: str = "interpolated_vit_tiny_imagenet.pth"
@@ -31,6 +35,7 @@ class Trainer:
         self.val_loader = val_loader
         self.optimizer = optimizer
         self.criterion = criterion
+        self.val_criterion=val_criterion
         self.scheduler = scheduler
         self.writer = writer
         self.device = device
@@ -39,6 +44,7 @@ class Trainer:
         self.checkpoint_interval = checkpoint_interval
         self.log_interval = log_interval
         self.model_dir = model_dir
+        self.early_stop_patience = early_stop_patience
         self.mixup_fn = mixup_fn
         self.model_name = model_name
         self.best_acc = 0.0
@@ -64,7 +70,7 @@ class Trainer:
             self.optimizer.zero_grad()
 
             with torch.cuda.amp.autocast():
-                outputs = self.model(images)
+                outputs, _ = self.model(images)
                 loss = self.criterion(outputs, labels)
 
             self.scaler.scale(loss).backward()
@@ -108,7 +114,6 @@ class Trainer:
     def validate(self, epoch: int) -> float:
         self.model.eval()
         val_loss, correct, total = 0.0, 0, 0
-        criterion_val = torch.nn.CrossEntropyLoss()
 
         val_loader_tqdm = tqdm(
             self.val_loader, 
@@ -122,8 +127,8 @@ class Trainer:
                 labels = labels.to(self.device, non_blocking=True)
 
                 with torch.cuda.amp.autocast():
-                    outputs = self.model(images)
-                    loss = criterion_val(outputs, labels)
+                    outputs, _ = self.model(images)
+                    loss = self.val_criterion(outputs, labels)
 
                 # Calculate metrics
                 batch_loss = loss.item()
@@ -176,6 +181,9 @@ class Trainer:
     def train(self) -> float:
         print(f"Logging to {self.writer.log_dir}")
         os.makedirs(self.model_dir, exist_ok=True)
+        # self.writer.add_hparams(self.model.config)
+        
+        no_improv_epochs = 0
 
         for epoch in range(self.num_epochs):
             train_loss, train_acc = self.train_one_epoch(epoch)
@@ -195,14 +203,22 @@ class Trainer:
 
             # Save best model
             if val_acc > self.best_acc:
+                no_improv_epochs = 0
                 self.best_acc = val_acc
                 self.save_model(epoch, is_best=True)
                 print(f"New best model saved with accuracy: {self.best_acc:.2f}%")
+            else:
+                no_improv_epochs+=1
+
 
             # Optional: Save checkpoint every N epochs
             if self.checkpoint_interval:
                 if (epoch + 1) % self.checkpoint_interval == 0:
                     self.save_model(epoch)
+            
+            if no_improv_epochs==self.early_stop_patience:
+                print(f"Early stopping: Training complete. Best validation accuracy")
+                break
 
         print(f"Training complete. Best validation accuracy: {self.best_acc:.2f}%")
         self.writer.close()
