@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.modules.module import RemovableHandle
+from tqdm.auto import tqdm
 
 from modules import utils
 
@@ -110,34 +111,117 @@ class SaveActivation(ContextDecorator):
         # Handle exceptions gracefully
         return exc_type is None
 
-def run_ACDC(model, tau, data_loader):
 
-    computation_graph = utils.ComputationalGraph(model)
 
-    def test_edge(src: Tuple[nn.Module, str], dst: Tuple[nn.Module, str]):
-        """
-        Tests the edge from the good class with all the bad classes edges.
-        The resulting kl is the average of the kl divergences
-        """
-        clean_src_act = clean_activations[src]
-        corrupted_src_act = corrupted_activations[src]
-        with PatchInput(dst, clean_src_act, corrupted_src_act):
-            logits = model(clean_batch)     
-        kl_divergence = F.kl_div(logits, clean_logits)
-        return kl_divergence
-    
+def run_ACDC(
+    model: nn.Module, 
+    tau: float, 
+    data_loader, # Should yield (clean_batch, [corrupted_batch_1, corrupted_batch_2, ...])
+):
+    """
+    Runs the ACDC algorithm to find a circuit in the model.
+
+    This implementation is adapted for a coarse-grained classification setting where
+    each clean sample is contrasted against multiple "bad class" samples.
+
+    Args:
+        model: The model to find the circuit in.
+        tau: The threshold for pruning. If the increase in KL divergence from pruning
+             an edge is less than tau, the edge is removed.
+        data_loader: A data loader that yields a tuple containing one clean batch and
+                     a list of corrupted batches (one for each contrastive class).
+                     This function only uses the first yielded batch.
+        computation_graph: An object representing the model's computational graph,
+                           with methods to get nodes and their connectivity.
+
+    Returns:
+        A set of tuples representing the edges of the discovered circuit.
+    """
     model.eval()
-    # if data_loader is the validation: 2900 total samples * 6 contrastive samples * num of edges to test
-    for corrupted_batches, clean_batch in data_loader:
-        corrupted_activations = []
-        with SaveActivations(computation_graph.nodes) as ctx:
-            with torch.no_grad():
-                for corrupted_batch in corrupted_batches:
-                    model(corrupted_batch)
-                    corrupted_activations.append(ctx.activations)
-                clean_logits = model(clean_batch)
-                clean_activations = ctx.activations
+    computation_graph = utils.ComputationalGraph(model)
+    # --- 1. Pre-computation: Cache all necessary activations ---
+    print("Step 1: Caching clean and corrupted activations...")
     
-                for dest in computation_graph.nodes: # they should be reverse order
-                    for src in computation_graph.get_incoming_edges(src): #TODO get_incoming_edges
-                        kl_divergence = test_edge(src, dest)
+    # Get a single batch of clean and corrupted data
+    clean_batch, corrupted_batches = next(iter(data_loader))
+
+    all_nodes = list(computation_graph.nodes.values())
+    print(all_nodes)
+    
+    # Cache clean activations and get the clean model output
+    with SaveActivations(all_nodes) as sa:
+        with torch.no_grad():
+            clean_logits = model(clean_batch)
+    clean_activations = sa.get_activations()
+    clean_logprobs = F.log_softmax(clean_logits, dim=-1)
+
+    # Cache activations for all corrupted batches
+    corrupted_activations_list = []
+    for corrupted_batch in tqdm(corrupted_batches, desc="Caching corrupted batches"):
+        with SaveActivations(all_nodes) as sa:
+            with torch.no_grad():
+                model(corrupted_batch)
+            corrupted_activations_list.append(sa.get_activations())
+    
+    print("Activation caching complete.")
+
+    # --- 2. ACDC Algorithm: Iterative Pruning ---
+    print(f"\nStep 2: Running ACDC with tau = {tau}...")
+
+    # Start with the full graph
+    circuit_edges = set(computation_graph.edges)
+    
+    # The performance (KL divergence) of the current circuit.
+    # We start with the full model, whose KL divergence against itself is 0.
+    current_circuit_kl = 0.0
+
+    # Iterate through nodes in reverse topological order (from output to input)
+    nodes_in_order = computation_graph.get_reverse_topological_sort()
+    
+    pbar_nodes = tqdm(nodes_in_order, desc="Nodes")
+    for dest_node in pbar_nodes:
+        # Iterate through all parents of the current destination node
+        parents = computation_graph.get_parents(dest_node.name)
+        
+        for src_node in parents:
+            edge_to_test = (src_node.name, dest_node.name)
+
+            # Skip if edge has already been pruned by an earlier step
+            if edge_to_test not in circuit_edges:
+                continue
+
+            # --- Test the importance of the edge ---
+            # Measure the average KL divergence when this single edge is patched
+            # from its clean activation to its corrupted activation.
+            total_patched_kl = 0.0
+            for corrupted_activations in corrupted_activations_list:
+                clean_src_act = clean_activations[src_node.name]
+                corrupted_src_act = corrupted_activations[src_node.name]
+                
+                # The PatchInput hook correctly isolates the effect of the single edge
+                # by doing: new_input = old_input - clean_contribution + corrupted_contribution
+                with utils.PatchInput(dest_node.module, clean_src_act, corrupted_src_act):
+                    with torch.no_grad():
+                        # A full forward pass is needed because the patch can affect all subsequent layers
+                        patched_logits = model(clean_batch)
+                
+                patched_logprobs = F.log_softmax(patched_logits, dim=-1)
+                # Use 'batchmean' for KL divergence as it's more stable than 'mean'
+                kl = F.kl_div(patched_logprobs, clean_logprobs, reduction='batchmean', log_target=True)
+                total_patched_kl += kl.item()
+            
+            avg_patched_kl = total_patched_kl / len(corrupted_batches)
+
+            # --- The ACDC pruning decision ---
+            # If the performance drop (increase in KL) is less than tau, prune the edge.
+            if avg_patched_kl - current_circuit_kl < tau:
+                # This edge is considered unimportant.
+                circuit_edges.remove(edge_to_test)
+                
+                # The new baseline performance is the one with this edge patched.
+                # This is the greedy part of the algorithm.
+                current_circuit_kl = avg_patched_kl
+    
+    print("\nACDC finished.")
+    print(f"Discovered circuit with {len(circuit_edges)} edges (out of {len(computation_graph.edges)}).")
+    return circuit_edges

@@ -7,7 +7,8 @@ from torch.optim.lr_scheduler import _LRScheduler
 from torch.utils.tensorboard import SummaryWriter
 from typing import Tuple, Optional, Dict, Any, Union
 
-from modules import paths
+# Assuming `modules.paths` is a custom module you have. If not, this can be removed.
+# from modules import paths 
 
 class Trainer:
     def __init__(
@@ -28,7 +29,8 @@ class Trainer:
         early_stop_patience: int,
         checkpoint_interval: int = None,
         mixup_fn: Optional[callable] = None,
-        model_name: str = "interpolated_vit_tiny_imagenet.pth"
+        model_name: str = "interpolated_vit_tiny_imagenet.pth",
+        resume: bool = False  # <-- NEW: Flag to control resuming
     ):
         self.model = model
         self.train_loader = train_loader
@@ -47,7 +49,50 @@ class Trainer:
         self.early_stop_patience = early_stop_patience
         self.mixup_fn = mixup_fn
         self.model_name = model_name
+        
+        # --- MODIFIED: Initialize start_epoch and best_acc ---
+        self.start_epoch = 0
         self.best_acc = 0.0
+
+        # --- NEW: Logic to load checkpoint if resuming ---
+        if resume:
+            checkpoint_path = os.path.join(self.model_dir, 'checkpoint.pth')
+            if os.path.exists(checkpoint_path):
+                print(f"Resuming training from checkpoint: {checkpoint_path}")
+                self.load_checkpoint(checkpoint_path)
+            else:
+                print(f"Resume flag is set, but no checkpoint was found at {checkpoint_path}. Starting from scratch.")
+
+    def load_checkpoint(self, path: str):
+        """Loads training state from a checkpoint file."""
+        checkpoint = torch.load(path, map_location=self.device)
+        
+        # Load model state, handling DataParallel wrapper if necessary
+        model_state_dict = checkpoint['state_dict']
+        # If the model was saved with DataParallel, it will have a 'module.' prefix.
+        # This handles loading it into a non-DataParallel model.
+        if isinstance(self.model, torch.nn.DataParallel):
+            self.model.load_state_dict(model_state_dict)
+        else:
+            # Create a new state_dict without the 'module.' prefix
+            from collections import OrderedDict
+            new_state_dict = OrderedDict()
+            for k, v in model_state_dict.items():
+                if k.startswith('module.'):
+                    name = k[7:]  # remove `module.`
+                    new_state_dict[name] = v
+                else:
+                    new_state_dict[k] = v
+            self.model.load_state_dict(new_state_dict)
+
+        self.optimizer.load_state_dict(checkpoint['optimizer'])
+        self.scheduler.load_state_dict(checkpoint['scheduler'])
+        self.scaler.load_state_dict(checkpoint['scaler'])
+        self.start_epoch = checkpoint['epoch']
+        self.best_acc = checkpoint['best_acc']
+        
+        print(f"Checkpoint loaded. Resuming from epoch {self.start_epoch + 1} with best accuracy {self.best_acc:.2f}%.")
+
 
     def train_one_epoch(self, epoch: int) -> Tuple[float, float]:
         self.model.train()
@@ -63,7 +108,6 @@ class Trainer:
             images = images.to(self.device, non_blocking=True)
             labels = labels.to(self.device, non_blocking=True)
 
-            # Apply Mixup/CutMix if available
             if self.mixup_fn:
                 images, labels = self.mixup_fn(images, labels)
 
@@ -77,7 +121,6 @@ class Trainer:
             self.scaler.step(self.optimizer)
             self.scaler.update()
 
-            # Calculate metrics
             batch_loss = loss.item()
             _, predicted = outputs.max(1)
             targets = labels.argmax(1) if self.mixup_fn else labels
@@ -85,19 +128,14 @@ class Trainer:
             batch_total = labels.size(0)
             batch_acc = 100.0 * batch_correct / batch_total
 
-            # Accumulate epoch metrics
             running_loss += batch_loss * batch_total
             correct += batch_correct
             total += batch_total
 
-            # Calculate global step
             global_step = epoch * len(self.train_loader) + batch_idx
-
-            # Log per-batch metrics
             self.writer.add_scalar('Loss/train_batch', batch_loss, global_step)
             self.writer.add_scalar('Accuracy/train_batch', batch_acc, global_step)
 
-            # Update progress bar
             if (batch_idx + 1) % self.log_interval == 0 or (batch_idx + 1) == len(self.train_loader):
                 cumulative_loss = running_loss / total
                 cumulative_acc = 100.0 * correct / total
@@ -106,7 +144,6 @@ class Trainer:
                     accuracy=f"{cumulative_acc:.2f}%"
                 )
 
-        # Calculate epoch metrics
         epoch_loss = running_loss / total
         epoch_acc = 100.0 * correct / total
         return epoch_loss, epoch_acc
@@ -130,26 +167,20 @@ class Trainer:
                     outputs, _ = self.model(images)
                     loss = self.val_criterion(outputs, labels)
 
-                # Calculate metrics
                 batch_loss = loss.item()
                 _, predicted = outputs.max(1)
                 batch_correct = predicted.eq(labels).sum().item()
                 batch_total = labels.size(0)
 
-                # Accumulate epoch metrics
                 val_loss += batch_loss * batch_total
                 correct += batch_correct
                 total += batch_total
 
-                # Calculate global step
                 global_step = epoch * len(self.train_loader) + len(self.train_loader) + batch_idx
-
-                # Log per-batch metrics
                 batch_acc = 100.0 * batch_correct / batch_total
                 self.writer.add_scalar('Loss/val_batch', batch_loss, global_step)
                 self.writer.add_scalar('Accuracy/val_batch', batch_acc, global_step)
 
-                # Update progress bar
                 if (batch_idx + 1) % self.log_interval == 0 or (batch_idx + 1) == len(self.val_loader):
                     cumulative_loss = val_loss / total
                     cumulative_acc = 100.0 * correct / total
@@ -158,7 +189,6 @@ class Trainer:
                         accuracy=f"{cumulative_acc:.2f}%"
                     )
 
-        # Calculate final validation metrics
         epoch_loss = val_loss / total
         epoch_acc = 100.0 * correct / total
         return epoch_loss, epoch_acc
@@ -174,6 +204,7 @@ class Trainer:
             'best_acc': self.best_acc,
             'scaler': self.scaler.state_dict()
         }
+        os.makedirs(self.model_dir, exist_ok=True) # Ensure directory exists
         torch.save(state, os.path.join(self.model_dir, 'checkpoint.pth'))
         if is_best:
             torch.save(state, os.path.join(self.model_dir, self.model_name))
@@ -181,15 +212,15 @@ class Trainer:
     def train(self) -> float:
         print(f"Logging to {self.writer.log_dir}")
         os.makedirs(self.model_dir, exist_ok=True)
-        # self.writer.add_hparams(self.model.config)
         
         no_improv_epochs = 0
-
-        for epoch in range(self.num_epochs):
+        smallest_val_loss = float("inf")
+        
+        # --- MODIFIED: Use self.start_epoch in the loop ---
+        for epoch in range(self.start_epoch, self.num_epochs):
             train_loss, train_acc = self.train_one_epoch(epoch)
             val_loss, val_acc = self.validate(epoch)
 
-            # Log epoch metrics
             self.writer.add_scalar('Loss/train', train_loss, epoch)
             self.writer.add_scalar('Accuracy/train', train_acc, epoch)
             self.writer.add_scalar('Loss/val', val_loss, epoch)
@@ -198,26 +229,32 @@ class Trainer:
                   f"Train Loss: {train_loss:.4f}, Acc: {train_acc:.2f}% | "
                   f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%")
 
-            # Update scheduler
             self.scheduler.step()
 
-            # Save best model
+            # Save model checkpoint after every epoch
+            self.save_model(epoch)
+
             if val_acc > self.best_acc:
-                no_improv_epochs = 0
                 self.best_acc = val_acc
+                # Save the best model separately
                 self.save_model(epoch, is_best=True)
                 print(f"New best model saved with accuracy: {self.best_acc:.2f}%")
+
+            if val_loss < smallest_val_loss:
+                no_improv_epochs = 0
+                smallest_val_loss = val_loss
             else:
                 no_improv_epochs+=1
 
-
-            # Optional: Save checkpoint every N epochs
-            if self.checkpoint_interval:
-                if (epoch + 1) % self.checkpoint_interval == 0:
-                    self.save_model(epoch)
+            if self.checkpoint_interval and (epoch + 1) % self.checkpoint_interval == 0:
+                print(f"Saving periodic checkpoint at epoch {epoch + 1}")
+                # The generic checkpoint is already saved above, so this is slightly redundant
+                # but could be used for specific named checkpoints if needed.
+                # self.save_model(epoch)
+                pass
             
-            if no_improv_epochs==self.early_stop_patience:
-                print(f"Early stopping: Training complete. Best validation accuracy")
+            if no_improv_epochs >= self.early_stop_patience:
+                print(f"Early stopping triggered after {self.early_stop_patience} epochs with no improvement.")
                 break
 
         print(f"Training complete. Best validation accuracy: {self.best_acc:.2f}%")

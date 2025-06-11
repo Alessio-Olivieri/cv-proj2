@@ -54,6 +54,13 @@ class ComputationalGraph():
         self.nodes = {}  # Store node_name: module_instance
         self._build_graph()
 
+        # reverse nodes for acdc:
+        self.ordered_nodes = sorted(
+            list(self.nodes.keys()), 
+            key=self._get_node_info, 
+            reverse=True
+        )        
+
     def _get_node_info(self, node_name):
         """Helper to get layer index and type for sorting and logic."""
         if node_name == "embedding":
@@ -122,6 +129,10 @@ class ComputationalGraph():
             list(edge_set), 
             key=lambda edge: (self._get_node_info(edge[0]), self._get_node_info(edge[1]))
         )
+
+    def get_incoming_edges(self, dst_node:str):
+        if dst_node not in self.nodes: raise ValueError("Wrong src node name")
+        return [(src, dst) for src,dst in self.edges if dst==dst_node]
 
     def prune_nodes(self, nodes_to_prune: List[str]):
         """

@@ -1,5 +1,6 @@
 from torch.utils.data import Dataset as torch_Dataset
 import torch
+from torch.utils.data import default_collate
 from pathlib import Path
 from typing import Dict, List, Literal, Union, Tuple, Optional, Any, Set, Callable
 import pickle
@@ -197,7 +198,6 @@ class ContrastiveWrapper(torch_Dataset):
         for class_name, fine_labels in self.coarse_labels.items():
             for label in fine_labels:
                 self.label_to_coarse_class[label] = class_name
-        print(self.label_to_coarse_class)
 
         self.class_to_indices: Dict[str, List[int]] = {name: [] for name in self.coarse_class_names}
         for i in range(len(self.dataset)):
@@ -234,7 +234,6 @@ class ContrastiveWrapper(torch_Dataset):
         # 1. Get the "good" sample (anchor)
         good_sample = self.dataset[idx]
         _good_data, good_fine_label = good_sample
-        print(good_sample)
         
         # 2. Identify the coarse class of the good sample
         anchor_coarse_class = self.label_to_coarse_class.get(good_fine_label)
@@ -267,6 +266,59 @@ class ContrastiveWrapper(torch_Dataset):
                 f"  Underlying Dataset: {repr(self.dataset)}\n"
                 f"  Coarse Classes: {self.coarse_class_names}\n"
                 f"  Number of samples: {len(self)}\n)")
+
+
+def contrastive_collate_fn(batch: List[Tuple[Tuple[Any, int], List[Tuple[Any, int]]]]):
+    """
+    Custom collate function for the ContrastiveWrapper.
+
+    Takes a batch of data from the ContrastiveWrapper and organizes it into
+    structured tensors ready for model input.
+
+    Args:
+        batch: A list of items, where each item is the output of 
+               ContrastiveWrapper.__getitem__.
+               Structure of one item: `( (good_image, good_label), [(bad_image_1, bad_label_1), ...] )`
+
+    Returns:
+        A tuple containing:
+        - good_batch (Tuple[torch.Tensor, torch.Tensor]): 
+          A tuple of (batched_images, batched_labels) for the good samples.
+        - bad_batches (List[Tuple[torch.Tensor, torch.Tensor]]):
+          A list where each element is a batch of negative samples. 
+          For example, bad_batches[0] will be a tuple of (images, labels) for the 
+          first negative sample from each item in the original batch.
+    """
+    # 1. Separate the good (anchor) samples and the lists of bad (negative) samples
+    good_samples = [item[0] for item in batch]
+    bad_samples_lists = [item[1] for item in batch]
+
+    # 2. Collate the good samples using the default PyTorch collate function.
+    # This will handle stacking the images and labels correctly.
+    # good_samples is a list of (image, label) tuples.
+    collated_good_samples = default_collate(good_samples)
+
+    # 3. Collate the bad samples. This is the tricky part.
+    # bad_samples_lists is a list of lists: [[(img, lbl), ...], [(img, lbl), ...]]
+    # We want to "transpose" it, so we get a list of batches.
+    
+    # Check if there are any bad samples to process
+    if not bad_samples_lists or not bad_samples_lists[0]:
+        return collated_good_samples, []
+
+    # Number of negative samples per anchor (should be consistent across the batch)
+    num_neg_per_anchor = len(bad_samples_lists[0])
+    
+    # Create a list of collated batches for the negative samples
+    collated_bad_samples = []
+    for i in range(num_neg_per_anchor):
+        # For the i-th negative sample, gather it from each anchor in the batch
+        neg_batch_i = [bad_list[i] for bad_list in bad_samples_lists]
+        # Collate this new batch of negative samples
+        collated_neg_batch_i = default_collate(neg_batch_i)
+        collated_bad_samples.append(collated_neg_batch_i)
+
+    return collated_good_samples, collated_bad_samples
 
 
 
