@@ -9,7 +9,9 @@ from tqdm.auto import tqdm
 
 from modules import utils
 
-# ... (PatchInput and SaveActivations classes remain the same) ...
+# PatchInput and SaveActivations classes remain the same, but I've included
+# the small correction from our previous discussion for completeness.
+
 class PatchInput(ContextDecorator):
     def __init__(self, module: nn.Module, clean_src_act, corrupted_src_act):
         self.module = module
@@ -24,7 +26,7 @@ class PatchInput(ContextDecorator):
         if len(input) > 1:
             return (patched_residual_stream,) + input[1:]
         else:
-            return (patched_residual_stream,)
+            return (patched_residual_stream,) # Always return a tuple for pre-hooks
 
     def __enter__(self):
         self._hook_handle = self.module.register_forward_pre_hook(self.patch_module)
@@ -57,6 +59,53 @@ class SaveActivations(ContextDecorator):
                 hook_handle.remove()
         return exc_type is None
 
+def cache_all_activations(
+    model: nn.Module, 
+    data_loader, 
+    nodes_to_cache: List[nn.Module],
+    device: torch.device
+) -> Tuple[List[Dict[str, torch.Tensor]], List[List[Dict[str, torch.Tensor]]], List[torch.Tensor], List[torch.Tensor]]:
+    """
+    Pre-computes and caches all necessary clean and corrupted activations and logits.
+    This is a performance optimization to avoid re-computing during the ACDC loop.
+    
+    Returns:
+        - A list where each element is the clean_samples tensor for a batch.
+        - A list where each element is the dictionary of clean activations for a batch.
+        - A list of lists for corrupted activations. Outer list for batches, inner for corruptions.
+        - A list where each element is the clean_logprobs tensor for a batch.
+    """
+    model.eval()
+    all_clean_samples = []
+    all_clean_activations = []
+    all_corrupted_activations = []
+    all_clean_logprobs = []
+
+    pbar = tqdm(data_loader, desc="Caching all activations", leave=False)
+    for clean_batch, corrupted_batches in pbar:
+        clean_samples, _ = clean_batch
+        clean_samples = clean_samples.to(device, non_blocking=True)
+        all_clean_samples.append(clean_samples)
+
+        # Cache clean activations and logits
+        with torch.no_grad(), SaveActivations(nodes_to_cache) as sa, torch.amp.autocast(device_type=device.type):
+            clean_logits, _ = model(clean_samples)
+        
+        all_clean_activations.append(sa.activations)
+        all_clean_logprobs.append(F.log_softmax(clean_logits, dim=-1))
+
+        # Cache corrupted activations
+        corrupted_activations_for_batch = []
+        for corrupted_batch in corrupted_batches:
+            corrupted_samples, _ = corrupted_batch
+            corrupted_samples = corrupted_samples.to(device, non_blocking=True)
+            with torch.no_grad(), SaveActivations(nodes_to_cache) as sa_corr, torch.amp.autocast(device_type=device.type):
+                model(corrupted_samples)
+            corrupted_activations_for_batch.append(sa_corr.activations)
+        all_corrupted_activations.append(corrupted_activations_for_batch)
+    
+    return all_clean_samples, all_clean_activations, all_corrupted_activations, all_clean_logprobs
+
 
 def run_ACDC(
     model: nn.Module, 
@@ -65,20 +114,26 @@ def run_ACDC(
     device: torch.device
 ):
     """
-    Runs the ACDC algorithm to find a circuit in the model.
-    This version is memory-efficient and processes the dataset on-the-fly
-    in batches, avoiding caching all activations at once.
+    Runs the ACDC algorithm to find a circuit in the model, evaluated on a full dataset.
     """
     model.eval()
     computation_graph = utils.ComputationalGraph(model)
-    all_nodes_to_hook = list(computation_graph.nodes.values())
-
-    print(f"Step 1: Running ACDC with tau = {tau} in batched mode...")
     
+    # --- 1. Pre-computation: Cache all necessary activations on the correct device ---
+    print("Step 1: Caching clean and corrupted activations...")
+    all_nodes = list(computation_graph.nodes.values())
+    
+    clean_samples_list, clean_acts_list, corr_acts_list, clean_logprobs_list = cache_all_activations(
+        model, data_loader, all_nodes, device
+    )
+    
+    print("Activation caching complete.")
+    print(f"\nStep 2: Running ACDC with tau = {tau}...")
+
     circuit_edges = set(computation_graph.edges)
     current_circuit_kl = 0.0
     nodes_in_order = computation_graph.get_reverse_topological_sort()
-
+    
     pbar_nodes = tqdm(nodes_in_order, desc="Pruning Edges (Nodes)")
     for dest_node in pbar_nodes:
         parents = computation_graph.get_parents(dest_node)
@@ -87,36 +142,18 @@ def run_ACDC(
             edge_to_test = (src_node, dest_node)
             if edge_to_test not in circuit_edges:
                 continue
-            
-            # --- We will accumulate KL divergence over all batches for this edge ---
+
+            # --- Calculate KL divergence for this edge averaged over the whole dataset ---
             total_kl_for_edge = 0.0
-            num_batches = 0
-            
-            # Create a new progress bar for iterating through the dataset for each edge
-            pbar_batch = tqdm(data_loader, desc=f"Testing edge {src_node[:15]}... -> {dest_node[:15]}...", leave=False)
-            
-            for clean_batch, corrupted_batches in pbar_batch:
-                num_batches += 1
-                clean_samples, _ = clean_batch
-                clean_samples = clean_samples.to(device, non_blocking=True)
+            for i in range(len(clean_samples_list)):
+                clean_samples = clean_samples_list[i]
+                clean_activations = clean_acts_list[i]
+                corrupted_activations_list = corr_acts_list[i]
+                clean_logprobs = clean_logprobs_list[i]
 
-                # --- Step A: Get clean activations and logprobs for the current batch ---
-                with torch.no_grad(), SaveActivations(all_nodes_to_hook) as sa, torch.amp.autocast(device_type=device.type):
-                    clean_logits, _ = model(clean_samples)
-                clean_activations = sa.activations
-                clean_logprobs = F.log_softmax(clean_logits, dim=-1)
-
-                # --- Step B: Average patched KL over all corruptions for this batch ---
                 total_patched_kl_for_batch = 0.0
-                for corrupted_batch in corrupted_batches:
-                    corrupted_samples, _ = corrupted_batch
-                    corrupted_samples = corrupted_samples.to(device, non_blocking=True)
+                for corrupted_activations in corrupted_activations_list:
                     
-                    # Get corrupted activations for this specific corruption
-                    with torch.no_grad(), SaveActivations(all_nodes_to_hook) as sa_corr, torch.amp.autocast(device_type=device.type):
-                        model(corrupted_samples)
-                    corrupted_activations = sa_corr.activations
-
                     # --- Get projected contributions (this logic is crucial and correct) ---
                     clean_src_act_raw = clean_activations[src_node]
                     corrupted_src_act_raw = corrupted_activations[src_node]
@@ -124,15 +161,15 @@ def run_ACDC(
                     clean_src_contribution = projection_layer(clean_src_act_raw)
                     corrupted_src_contribution = projection_layer(corrupted_src_act_raw)
                     
-                    # Determine correct module to hook
-                    _, dst_type = computation_graph._get_node_info(dest_node)
+                    # --- Determine correct module to hook ---
+                    dst_layer, dst_type = computation_graph._get_node_info(dest_node)
                     if dst_type == "head":
                         module_to_hook_name = dest_node.rsplit('.', 1)[0]
                         module_to_hook = model.get_submodule(module_to_hook_name)
                     else:
                         module_to_hook = computation_graph.nodes[dest_node]
                     
-                    # Run patched forward pass
+                    # --- Run patched forward pass ---
                     with torch.no_grad(), torch.amp.autocast(device_type=device.type):
                         with PatchInput(module_to_hook, clean_src_contribution, corrupted_src_contribution):
                             patched_logits, _ = model(clean_samples)
@@ -142,18 +179,18 @@ def run_ACDC(
                     total_patched_kl_for_batch += kl.item()
                 
                 # Average KL over corruptions for this one clean batch
-                avg_kl_for_batch = total_patched_kl_for_batch / len(corrupted_batches)
+                avg_kl_for_batch = total_patched_kl_for_batch / len(corrupted_activations_list)
                 total_kl_for_edge += avg_kl_for_batch
-
+            
             # Average KL over all clean batches in the dataset
-            avg_patched_kl_for_edge = total_kl_for_edge / num_batches
+            avg_patched_kl_for_edge = total_kl_for_edge / len(clean_samples_list)
 
             # --- Pruning Decision ---
             if avg_patched_kl_for_edge - current_circuit_kl < tau:
                 circuit_edges.remove(edge_to_test)
                 current_circuit_kl = avg_patched_kl_for_edge
                 pbar_nodes.set_postfix(pruned=f"{len(computation_graph.edges) - len(circuit_edges)}", kl=f"{current_circuit_kl:.4f}")
-    
+
     print("\nACDC finished.")
     print(f"Discovered circuit with {len(circuit_edges)} edges (out of {len(computation_graph.edges)}).")
     return circuit_edges
