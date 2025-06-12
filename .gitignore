@@ -1,4 +1,4 @@
-checkpoints/*
+# checkpoints/*
 data/*
 data/train.pkl
 data/valid.pkl
