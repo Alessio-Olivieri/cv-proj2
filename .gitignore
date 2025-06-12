@@ -9,3 +9,4 @@ __pycache__
 .venv
 .vscode/settings.json
 .notebooks/all_classes_visualized.pdf
+.vscode

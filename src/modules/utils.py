@@ -5,6 +5,8 @@ from typing import Dict, List, Optional, Union
 import graphviz
 import numpy as np
 import pygraphviz as pgv
+from torch import nn
+import torch
 from IPython.display import display
 
 from modules import model
@@ -54,16 +56,16 @@ class ComputationalGraph():
         self.nodes = {}  # Store node_name: module_instance
         self._build_graph()
 
-        # reverse nodes for acdc:
-        self.ordered_nodes = sorted(
+    def get_reverse_topological_sort(self):
+        return sorted(
             list(self.nodes.keys()), 
             key=self._get_node_info, 
             reverse=True
-        )        
+        )      
 
     def _get_node_info(self, node_name):
         """Helper to get layer index and type for sorting and logic."""
-        if node_name == "embedding":
+        if node_name.startswith("embedding"):
             return (-1, "embedding")
         if node_name == "classifier":
             return (self.num_hidden_layers, "classifier")
@@ -84,7 +86,7 @@ class ComputationalGraph():
     def _build_graph(self):
         # 1. Define and add nodes
         # Note: In a real scenario, use try-except for get_submodule
-        self.nodes["embedding"] = self.model.get_submodule("embedding.final_output")
+        self.nodes["embedding.final_output"] = self.model.get_submodule("embedding.final_output")
         # self.nodes["classifier"] = self.model.get_submodule("classifier")
 
         for block_idx in range(self.num_hidden_layers):
@@ -130,9 +132,60 @@ class ComputationalGraph():
             key=lambda edge: (self._get_node_info(edge[0]), self._get_node_info(edge[1]))
         )
 
-    def get_incoming_edges(self, dst_node:str):
+    def get_parents(self, dst_node:str):
         if dst_node not in self.nodes: raise ValueError("Wrong src node name")
-        return [(src, dst) for src,dst in self.edges if dst==dst_node]
+        return [src for src,dst in self.edges if dst==dst_node]
+
+    def get_projection_for_source(self, src_name: str):
+        """
+        Finds or creates the projection layer that maps a source node's output 
+        to the residual stream dimension (d_model).
+        """
+        src_layer, src_type = self._get_node_info(src_name)
+
+        if src_type == "head":
+            # This is the crucial logic. We can't use the full W_O layer.
+            # We must create a new linear layer using only the slice of the
+            # W_O weight matrix that corresponds to this specific head.
+
+            # 1. Parse the head index from the source name
+            # e.g., "encoder.blocks.5.attention.heads.3.final_output" -> block 5, head 3
+            parts = src_name.split('.')
+            block_idx = int(parts[2])
+            head_idx = int(parts[5])
+
+            # 2. Get the original MultiHeadAttention output projection layer (W_O)
+            mha_module_name = f"encoder.blocks.{block_idx}.attention"
+            mha_module = self.model.get_submodule(mha_module_name)
+            original_projection = mha_module.output_projection
+
+            # 3. Get necessary dimensions
+            d_model = self.model.config["hidden_size"]
+            d_head = self.model.config["hidden_size"] // self.model.config["num_attention_heads"]
+            
+            # 4. Calculate the start and end columns for slicing W_O's weight
+            start_col = head_idx * d_head
+            end_col = start_col + d_head
+            
+            # 5. Create a new, temporary projection layer for this single head
+            # It maps from d_head -> d_model, with no bias.
+            single_head_projection = nn.Linear(d_head, d_model, bias=False)
+
+            # 6. Copy the sliced weights from the original W_O matrix
+            with torch.no_grad():
+                # The original_projection.weight is shape (d_model, all_head_size)
+                # We slice the columns corresponding to our head_idx
+                sliced_weight = original_projection.weight[:, start_col:end_col]
+                single_head_projection.weight.copy_(sliced_weight)
+
+            return single_head_projection
+
+        elif src_type in ["mlp", "embedding"]:
+            # The output of the MLP and the embedding are already in d_model.
+            # The projection is effectively an identity operation.
+            return nn.Identity()
+            
+        raise ValueError(f"Unknown source type '{src_type}' for node '{src_name}'")
 
     def prune_nodes(self, nodes_to_prune: List[str]):
         """

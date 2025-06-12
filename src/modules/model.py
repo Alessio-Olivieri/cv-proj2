@@ -44,6 +44,7 @@ class PatchEmbeddings(nn.Module):
         Returns:
             Patch embeddings tensor of shape (batch, num_patches, hidden_size)
         """
+
         x = self.projection(x)  # (b, hidden_size, grid_size, grid_size)
         x = x.flatten(2).transpose(1, 2)  # (b, num_patches, hidden_size)
         return x

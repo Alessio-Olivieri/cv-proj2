@@ -307,8 +307,6 @@ def contrastive_collate_fn(batch: List[Tuple[Tuple[Any, int], List[Tuple[Any, in
 
     # Number of negative samples per anchor (should be consistent across the batch)
     num_neg_per_anchor = len(bad_samples_lists[0])
-    print(len(bad_samples_lists))
-    print(num_neg_per_anchor)
     
     collated_bad_samples = [([], []) for _ in range(num_neg_per_anchor)]
     for bad_samples_for_sample_i in bad_samples_lists:
