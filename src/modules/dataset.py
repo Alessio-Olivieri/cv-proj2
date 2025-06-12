@@ -297,7 +297,6 @@ def contrastive_collate_fn(batch: List[Tuple[Tuple[Any, int], List[Tuple[Any, in
     # This will handle stacking the images and labels correctly.
     # good_samples is a list of (image, label) tuples.
     collated_good_samples = default_collate(good_samples)
-
     # 3. Collate the bad samples. This is the tricky part.
     # bad_samples_lists is a list of lists: [[(img, lbl), ...], [(img, lbl), ...]]
     # We want to "transpose" it, so we get a list of batches.
@@ -308,15 +307,15 @@ def contrastive_collate_fn(batch: List[Tuple[Tuple[Any, int], List[Tuple[Any, in
 
     # Number of negative samples per anchor (should be consistent across the batch)
     num_neg_per_anchor = len(bad_samples_lists[0])
+    print(len(bad_samples_lists))
+    print(num_neg_per_anchor)
     
-    # Create a list of collated batches for the negative samples
-    collated_bad_samples = []
-    for i in range(num_neg_per_anchor):
-        # For the i-th negative sample, gather it from each anchor in the batch
-        neg_batch_i = [bad_list[i] for bad_list in bad_samples_lists]
-        # Collate this new batch of negative samples
-        collated_neg_batch_i = default_collate(neg_batch_i)
-        collated_bad_samples.append(collated_neg_batch_i)
+    collated_bad_samples = [([], []) for _ in range(num_neg_per_anchor)]
+    for bad_samples_for_sample_i in bad_samples_lists:
+        for j, (bad_sample_j, bad_label_j) in enumerate(bad_samples_for_sample_i):
+            collated_bad_samples[j][0].append(bad_sample_j)
+            collated_bad_samples[j][1].append(bad_label_j)
+    collated_bad_samples = [(torch.stack(bad_samples), label) for bad_samples, label in collated_bad_samples]
 
     return collated_good_samples, collated_bad_samples
 
