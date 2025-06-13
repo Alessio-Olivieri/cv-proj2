@@ -136,7 +136,7 @@ def load(
 
 
 def load_animal_dataset(split: Literal["train", "validation", "test"], transform:Callable, tiny=False, **tiny_kwargs) -> Tuple[hf_Dataset, Dict]:
-    coarse_labels = {
+    coarse_labels_original = {
     "Aquatic": {0, 15, 16, 20, 40},
     "Amphibians & Reptiles": {1, 2, 3, 4, 5},
     "Arthropods": {7, 8, 9, 10, 32, 33, 34, 35, 36, 37, 38, 39, 184},
@@ -144,6 +144,10 @@ def load_animal_dataset(split: Literal["train", "validation", "test"], transform
     "Mammals": {11, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 187},
     "Marine Life & Fossils": {6, 12, 13, 14, 190}
     }
+    def map_labels(example):
+        example["label"] = new_animal_labels_map[example["label"]]
+        return example
+
     
     pickle_path: Path = paths.data / ("animal_"+ split + ".pkl")
 
@@ -152,17 +156,19 @@ def load_animal_dataset(split: Literal["train", "validation", "test"], transform
         dataset: hf_Dataset = pickle.load(open(pickle_path, "rb"))
     else:
         print("Generating animal dataset...")
-        animal_labels = list(coarse_labels.values())
+        animal_labels = list(coarse_labels_original.values())
         animal_labels = animal_labels[0].union(*animal_labels[1:])
         dataset: hf_Dataset = load(split)
         dataset: hf_Dataset = dataset.filter(lambda x: x["label"] in animal_labels)
+        new_animal_labels_map = {label:i for i,label in enumerate(animal_labels)}
+        dataset = dataset.map(map_labels)
         pickle.dump(dataset, open("../data/animal_valid", "wb"))
 
     if tiny:
         # Pass the tiny_kwargs to gen_super_tiny
         dataset = gen_super_tiny(dataset, split, **tiny_kwargs)
 
-    return dataset, coarse_labels
+    return dataset, coarse_labels_original
 
 class ContrastiveWrapper(torch_Dataset):
     """
