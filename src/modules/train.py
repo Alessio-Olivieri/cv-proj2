@@ -266,20 +266,11 @@ class CoarseTrainer(Trainer):
     """
     A Trainer subclass for training a model on coarse-grained labels derived from
     fine-grained labels in the dataset.
-
-    This trainer assumes that the model's final classification head has been
-    modified to output predictions for the number of coarse classes, not the
-    original number of fine classes.
-
-    Args:
-        coarse_labels (Dict[str, List[int]]): A dictionary mapping coarse class
-            names to a list of their corresponding fine-grained label indices.
-        *args, **kwargs: All other arguments are passed directly to the
-            base Trainer class.
+    ...
     """
     def __init__(
         self,
-        coarse_labels: Dict[str, List[int]],
+        coarse_labels: Dict[str, Union[List[int], set]], # Accept lists or sets
         *args,
         **kwargs
     ):
@@ -311,10 +302,13 @@ class CoarseTrainer(Trainer):
         # 2. Mapping matrix for soft labels (for mixup)
         self.fine_to_coarse_matrix = torch.zeros(num_fine_classes, self.num_coarse_classes, device=self.device)
         for coarse_idx, fine_indices in enumerate(coarse_labels.values()):
-            self.fine_to_coarse_matrix[fine_indices, coarse_idx] = 1
+            # --- THIS IS THE FIX ---
+            # Convert the set to a list before indexing the tensor
+            self.fine_to_coarse_matrix[list(fine_indices), coarse_idx] = 1
 
         print(f"CoarseTrainer initialized. Mapping {num_fine_classes} fine labels to {self.num_coarse_classes} coarse labels.")
 
+        
     def train_one_epoch(self, epoch: int) -> Tuple[float, float]:
         """Performs one epoch of training using coarse-grained labels."""
         self.model.train()

@@ -1,5 +1,5 @@
 from contextlib import ContextDecorator
-from typing import List, Tuple, Dict, Any, Union
+from typing import List, Tuple, Dict, Set
 
 import torch
 import torch.nn as nn
@@ -230,82 +230,107 @@ def run_ACDC_optimized(
     print("\nACDC finished.")
     print(f"Discovered circuit with {len(circuit_edges)} edges (out of {len(computation_graph.edges)}).")
     return circuit_edges
+    
 
-
-
-def test_taus(circuits: Dict[Tuple[str, str]], dataloader, coarse_labels, config, device):
-    def get_accuracy_on_coarse_labels(model, datalaoder, device, coarse_model=False) -> float:
-        fine_label_to_coarse = {fl:cli for cli, cl in enumerate(coarse_labels.values()) for fl in cl}
-        coarse_to_name = {i:cl for i, cl in enumerate(coarse_labels.keys())}
+def test_taus(circuits: Set[str | Set[Tuple[str, str]]], dataloader, coarse_labels, config, device):
+    def get_accuracy_on_coarse_labels(model, dataloader, device, coarse_model=False) -> float:
+        fine_label_to_coarse = {fl: cli for cli, cl in enumerate(coarse_labels.values()) for fl in cl}
+        coarse_to_name = {i: cl for i, cl in enumerate(coarse_labels.keys())}
 
         model.eval()
         correct, total = 0.0, 0
 
         dataloader_tqdm = tqdm(
-            datalaoder, 
-            desc=f"[Validation]", 
+            dataloader,
+            desc=f"[Validation]",
             leave=False
         )
 
         with torch.no_grad():
             for batch_idx, (images, labels) in enumerate(dataloader_tqdm):
                 images = images.to(device, non_blocking=True)
-                labels = labels.to(device, non_blocking=True)
+                labels = labels.cpu()  # Move labels to CPU for in-place apply_
                 labels.apply_(lambda x: fine_label_to_coarse.get(x, x))
+                labels = labels.to(device, non_blocking=True)  # Move back to device
 
-                with torch.amp.autocast(device_type=device.type):
+                with torch.amp.autocast(device_type=device.type, enabled=(device.type == "cuda")):
                     outputs, _ = model(images)
 
                 _, predicted = outputs.max(1)
                 if not coarse_model:
+                    predicted = predicted.cpu()
                     predicted.apply_(lambda x: fine_label_to_coarse.get(x, x))
+                    predicted = predicted.to(device)
+
                 batch_correct = predicted.eq(labels).sum().item()
                 batch_total = labels.size(0)
 
                 correct += batch_correct
                 total += batch_total
-                
+
         epoch_acc = 100.0 * correct / total
         return epoch_acc
-    
+
     def load_checkpoint(model, path: str):
         """Loads training state from a checkpoint file."""
-        checkpoint = torch.load(path, map_location=self.device)
-        
-        # Load model state, handling DataParallel wrapper if necessary
+        checkpoint = torch.load(path, map_location=device)
         model_state_dict = checkpoint['state_dict']
-        # If the model was saved with DataParallel, it will have a 'module.' prefix.
-        # This handles loading it into a non-DataParallel model.
+
         if isinstance(model, torch.nn.DataParallel):
             model.load_state_dict(model_state_dict)
         else:
-            # Create a new state_dict without the 'module.' prefix
             from collections import OrderedDict
             new_state_dict = OrderedDict()
             for k, v in model_state_dict.items():
-                if k.startswith('module.'):
-                    name = k[7:]  # remove `module.`
-                    new_state_dict[name] = v
-                else:
-                    new_state_dict[k] = v
+                name = k[7:] if k.startswith('module.') else k
+                new_state_dict[name] = v
             model.load_state_dict(new_state_dict)
 
         start_epoch = checkpoint['epoch']
         best_acc = checkpoint['best_acc']
-        
+
         print(f"Checkpoint loaded. Resuming from epoch {start_epoch + 1} with best accuracy {best_acc:.2f}%.")
+
     import time
-    #test original model:
-    vit = model.ViT(config)
-    load_checkpoint(vit)
+
+    # test original model:
+    vit = model.ViT(config).to(device)
+    load_checkpoint(vit, paths.chekpoints / "vit1.pth")
     orginal_model_acc = get_accuracy_on_coarse_labels(vit, dataloader, device, coarse_model=False)
-    print(f"origianl model accuracy: {orginal_model_acc}")
+    print(f"Original model accuracy: {orginal_model_acc}")
+
+    warmup_iters = 1
+    test_iters = 3
+
     for tau, circuit in circuits.items():
-        vit = model.ViT(config)
-        load_checkpoint(vit)
-        vit.retrain_circuit(circuit)
+        vit = model.ViT(config).to(device)
+        load_checkpoint(vit, paths.chekpoints / "vit1.pth")
+        vit.retain_circuit(circuit)
         print("Testing model with tau", tau)
-        start = time.time()
-        acc = get_accuracy_on_coarse_labels(vit, dataloader, device, coarse_model=False)
-        end = time.time()
-        print("Accuracy:", acc, "| Took", end-start, "seconds")
+
+        # Warm-up
+        for _ in range(warmup_iters):
+            _ = get_accuracy_on_coarse_labels(vit, dataloader, device, coarse_model=False)
+
+        # Timing
+        total_time = 0.0
+        for _ in range(test_iters):
+            if device.type == "cuda":
+                start_event = torch.cuda.Event(enable_timing=True)
+                end_event = torch.cuda.Event(enable_timing=True)
+                torch.cuda.synchronize()
+                start_event.record()
+                acc = get_accuracy_on_coarse_labels(vit, dataloader, device, coarse_model=False)
+                end_event.record()
+                torch.cuda.synchronize()
+                elapsed_time = start_event.elapsed_time(end_event) / 1000.0  # Convert ms to sec
+            else:
+                start = time.time()
+                acc = get_accuracy_on_coarse_labels(vit, dataloader, device, coarse_model=False)
+                end = time.time()
+                elapsed_time = end - start
+
+            total_time += elapsed_time
+
+        avg_time = total_time / test_iters
+        print("Accuracy:", acc, "| Avg Time over", test_iters, "runs:", avg_time, "seconds")

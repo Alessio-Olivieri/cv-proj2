@@ -401,7 +401,7 @@ class ViT(nn.Module):
                 block.mlp.final_output.pruned = True
 
 
-    def retrain_circuit(self, circuit: Set[Tuple[str, str]]):
+    def retain_circuit(self, circuit: Set[Tuple[str, str]]):
         """
         Prunes the model to keep only the components and edges specified in the circuit.
         Any head or MLP layer not mentioned in the circuit will be pruned.
