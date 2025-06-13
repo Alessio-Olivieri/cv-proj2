@@ -147,6 +147,10 @@ def load_animal_dataset(split: Literal["train", "validation", "test"], transform
     def map_labels(example):
         example["label"] = new_animal_labels_map[example["label"]]
         return example
+    animal_labels = list(coarse_labels_original.values())
+    animal_labels = animal_labels[0].union(*animal_labels[1:])
+    new_animal_labels_map = {label:i for i,label in enumerate(animal_labels)}
+    coarse_labels = {label:{new_animal_labels_map[cl] for cl in cl_old_set} for label, cl_old_set in coarse_labels_original.items()}
 
     
     pickle_path: Path = paths.data / ("animal_"+ split + ".pkl")
@@ -156,19 +160,16 @@ def load_animal_dataset(split: Literal["train", "validation", "test"], transform
         dataset: hf_Dataset = pickle.load(open(pickle_path, "rb"))
     else:
         print("Generating animal dataset...")
-        animal_labels = list(coarse_labels_original.values())
-        animal_labels = animal_labels[0].union(*animal_labels[1:])
         dataset: hf_Dataset = load(split)
         dataset: hf_Dataset = dataset.filter(lambda x: x["label"] in animal_labels)
-        new_animal_labels_map = {label:i for i,label in enumerate(animal_labels)}
         dataset = dataset.map(map_labels)
-        pickle.dump(dataset, open("../data/animal_valid", "wb"))
+        pickle.dump(dataset, open(pickle_path, "wb"))
 
     if tiny:
         # Pass the tiny_kwargs to gen_super_tiny
         dataset = gen_super_tiny(dataset, split, **tiny_kwargs)
 
-    return dataset, coarse_labels_original
+    return dataset, coarse_labels
 
 class ContrastiveWrapper(torch_Dataset):
     """

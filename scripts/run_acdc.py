@@ -1,4 +1,3 @@
-
 # %%
 import sys
 import torch
@@ -60,7 +59,7 @@ print("validation:\n"+str(val_dataset))
 
 
 # %%
-batch_size = 2 if toy else 4096 
+batch_size = 5 if toy else 4096 
 
 train_loader = DataLoader(
     train_dataset,
@@ -89,15 +88,15 @@ val_loader = DataLoader(
 importlib.reload(model)
 config = {
     "patch_size": 8,           # Kept small for fine-grained patches
-    "hidden_size": 48,          # Increased from 48 (better representation)
+    "hidden_size": 64,          # Increased from 48 (better representation)
     "num_hidden_layers": 6,     # Deeper for pruning flexibility
     "num_attention_heads": 8,   # More heads (head_dim = 64/8 = 8)
     "intermediate_size": 4 * 64,# Standard FFN scaling
-    "hidden_dropout_prob": 0.1, # Mild dropout for regularization
-    "attention_probs_dropout_prob": 0.1,
+    "hidden_dropout_prob": 0.2, # Mild dropout for regularization
+    "attention_probs_dropout_prob": 0.2,
     "initializer_range": 0.02,
     "image_size": 64,
-    "num_classes": 200,
+    "num_classes": 58,
     "num_channels": 3,
     "qkv_bias": True,           # Keep bias for now (can prune later)
 }
@@ -118,20 +117,21 @@ class SoftTargetCrossEntropy(nn.Module):
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 vit = model.ViT(config).to(device)
 
-num_epochs = 200
-warmup_epochs = 2
+num_epochs = 500
+warmup_epochs = 20
 base_lr = 3e-4
 min_lr = 1e-6
 weight_decay = 0.05  # For AdamW optimizer
 label_smoothing = 0.1  # For cross-entropy
-patience = 20
+patience = 50
 
 
 
 optimizer = AdamW(vit.parameters(),
                   lr=base_lr,
                   weight_decay = weight_decay,
-                  betas=(0.9, 0.999)
+                  betas=(0.9, 0.98),
+                  eps = 1e-6      
                   )
 
 # Linear warmup for 30 epochs (0 → base_lr)
@@ -158,7 +158,7 @@ scheduler = SequentialLR(
 
 mixup_fn = v2.MixUp(
     alpha=1.0,          # Add CutMix
-    num_classes=200
+    num_classes=58
 )
 
 trainer = train.Trainer(model=vit,
@@ -175,14 +175,19 @@ trainer = train.Trainer(model=vit,
                         log_interval=50,
                         model_dir=paths.chekpoints,
                         mixup_fn=mixup_fn,
-                        early_stop_patience=20,
-                        model_name="vit1",
-                        resume=True
+                        early_stop_patience=patience,
+                        model_name="vit1.pth",
+                        resume=False
                         )
 
 
 # %%
 # acc = trainer.train()
+
+# %%
+importlib.reload(dataset)
+train_subset, coarse_labels = dataset.load_animal_dataset("train", transform=transform_train, tiny=True, stop=50)# as big as validation
+print(coarse_labels)
 
 # %%
 importlib.reload(acdc)
@@ -213,12 +218,13 @@ importlib.reload(acdc)
 importlib.reload(utils)
 
 circuits = {}
-for tau in [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
+for tau in [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
     circuits[str(tau)] = acdc.run_ACDC_optimized(vit, tau, acdc_loader, device=device)
 
 import pickle
 print("saving in circuits.pkl")
 pickle.dump(circuits, open("circuits.pkl", "wb"))
 print("saved in circuits.pkl")
+
 
 
