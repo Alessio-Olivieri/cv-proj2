@@ -2,7 +2,7 @@ import torch
 import math
 import torch.nn as nn
 from torch.nn import Conv2d
-from typing import Callable, List, Tuple, Optional, Dict
+from typing import Callable, List, Tuple, Optional, Dict, Set
 from jaxtyping import Float, Int
 from torch import Tensor
 
@@ -248,9 +248,10 @@ class MLP(nn.Module):
     """
     def __init__(self, config):
         super().__init__()
-        self.dense1 = nn.Linear(config["hidden_size"], config["intermediate_size"])
+        self.hidden_size = config["hidden_size"]
+        self.dense1 = nn.Linear(self.hidden_size, config["intermediate_size"])
         self.activation = nn.GELU()
-        self.dense2 = nn.Linear(config["intermediate_size"], config["hidden_size"])
+        self.dense2 = nn.Linear(config["intermediate_size"], self.hidden_size)
         self.dropout = nn.Dropout(config["hidden_dropout_prob"])
         self.final_output = Identity()
     
@@ -263,9 +264,13 @@ class MLP(nn.Module):
         Returns:
             Output tensor (batch, seq_len, hidden_size)
         """
-        x = self.activation(self.dense1(x))
-        x = self.dropout(self.dense2(x))
-        x = self.final_output(x)
+        if self.final_output.pruned:
+            output_shape = (x.shape[0], x.shape[1], self.hidden_size)
+            return torch.zeros(output_shape, device=x.device, dtype=x.dtype) 
+        else:
+            x = self.activation(self.dense1(x))
+            x = self.dropout(self.dense2(x))
+            x = self.final_output(x)
         return x
         
 
@@ -380,15 +385,67 @@ class ViT(nn.Module):
         heads_to_prune = set(heads_to_prune)
 
         to_be_pruned_per_block = [[] for block_id in range(len(self.encoder.blocks))]
-        print(to_be_pruned_per_block)
         for head in heads_to_prune:
-            print(head)
             block_id = int(head.split(".")[2])
             head_id = int(head.split(".")[5])
             to_be_pruned_per_block[block_id].append(head_id)
 
         for block_id, block in enumerate(self.encoder.blocks):
             block.attention.prune_heads(to_be_pruned_per_block[block_id])
+    
+
+    def prune_mlp(self, mlp_to_prune: List[str]):
+        blocks_to_prune = {int(mlp.split(".")[2]) for mlp in mlp_to_prune}
+        for block_id, block in enumerate(self.encoder.blocks):
+            if block_id in blocks_to_prune:
+                block.mlp.final_output.pruned = True
+
+
+    def retrain_circuit(self, circuit: Set[Tuple[str, str]]):
+        """
+        Prunes the model to keep only the components and edges specified in the circuit.
+        Any head or MLP layer not mentioned in the circuit will be pruned.
+
+        Args:
+            circuit: A set of (source_name, destination_name) tuples representing the
+                     edges of the circuit to keep.
+        """
+        num_hidden_layers = self.config["num_hidden_layers"]
+        num_attention_heads = self.config["num_attention_heads"]
+
+        # 1. Identify all potentially prunable components in the model
+        all_mlp_nodes = {
+            f"encoder.blocks.{block_idx}.mlp.final_output"
+            for block_idx in range(num_hidden_layers)
+        }
+        all_head_nodes = {
+            f"encoder.blocks.{block_idx}.attention.heads.{head_idx}.final_output"
+            for block_idx in range(num_hidden_layers)
+            for head_idx in range(num_attention_heads)
+        }
+
+        # 2. Identify which components are active (i.e., part of the circuit)
+        active_nodes = set()
+        for src, dst in circuit:
+            active_nodes.add(src)
+            active_nodes.add(dst)
+
+        # An active component is one that appears in our active_nodes set.
+        active_mlp_nodes = {node for node in active_nodes if "mlp" in node}
+        active_head_nodes = {node for node in active_nodes if "heads" in node}
+
+        # 3. Find the set of components to prune by taking the set difference
+        mlps_to_prune = all_mlp_nodes - active_mlp_nodes
+        heads_to_prune = all_head_nodes - active_head_nodes
+
+        # 4. Call the respective pruning methods
+        print(f"Pruning {len(mlps_to_prune)} unused MLP layers...")
+        self.prune_mlp(list(mlps_to_prune))
+
+        print(f"Pruning {len(heads_to_prune)} unused attention heads...")
+        self.prune_heads(list(heads_to_prune))
+        
+        print("\nModel pruned. Ready for retraining on the circuit.")
             
         
     

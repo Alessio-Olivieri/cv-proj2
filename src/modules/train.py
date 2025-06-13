@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import _LRScheduler
 from torch.utils.tensorboard import SummaryWriter
-from typing import Tuple, Optional, Dict, Any, Union
+from typing import Tuple, Optional, Dict, Any, Union, List
 
 # Assuming `modules.paths` is a custom module you have. If not, this can be removed.
 # from modules import paths 
@@ -260,3 +260,166 @@ class Trainer:
         print(f"Training complete. Best validation accuracy: {self.best_acc:.2f}%")
         self.writer.close()
         return self.best_acc
+    
+
+class CoarseTrainer(Trainer):
+    """
+    A Trainer subclass for training a model on coarse-grained labels derived from
+    fine-grained labels in the dataset.
+
+    This trainer assumes that the model's final classification head has been
+    modified to output predictions for the number of coarse classes, not the
+    original number of fine classes.
+
+    Args:
+        coarse_labels (Dict[str, List[int]]): A dictionary mapping coarse class
+            names to a list of their corresponding fine-grained label indices.
+        *args, **kwargs: All other arguments are passed directly to the
+            base Trainer class.
+    """
+    def __init__(
+        self,
+        coarse_labels: Dict[str, List[int]],
+        *args,
+        **kwargs
+    ):
+        super().__init__(*args, **kwargs)
+
+        if not coarse_labels:
+            raise ValueError("coarse_labels mapping cannot be empty.")
+
+        self.coarse_labels = coarse_labels
+        self.num_coarse_classes = len(coarse_labels)
+
+        # --- Create mappings from fine-grained to coarse-grained labels ---
+        fine_to_coarse_dict = {
+            fine_idx: coarse_idx
+            for coarse_idx, fine_indices in enumerate(coarse_labels.values())
+            for fine_idx in fine_indices
+        }
+        
+        all_fine_labels = list(fine_to_coarse_dict.keys())
+        if not all_fine_labels:
+             raise ValueError("coarse_labels dictionary contains no fine label indices.")
+        num_fine_classes = max(all_fine_labels) + 1
+
+        # 1. Vectorized mapping tensor for hard labels (for fast indexing)
+        self.mapping_tensor = torch.full((num_fine_classes,), -1, dtype=torch.long, device=self.device)
+        for fine_idx, coarse_idx in fine_to_coarse_dict.items():
+            self.mapping_tensor[fine_idx] = coarse_idx
+
+        # 2. Mapping matrix for soft labels (for mixup)
+        self.fine_to_coarse_matrix = torch.zeros(num_fine_classes, self.num_coarse_classes, device=self.device)
+        for coarse_idx, fine_indices in enumerate(coarse_labels.values()):
+            self.fine_to_coarse_matrix[fine_indices, coarse_idx] = 1
+
+        print(f"CoarseTrainer initialized. Mapping {num_fine_classes} fine labels to {self.num_coarse_classes} coarse labels.")
+
+    def train_one_epoch(self, epoch: int) -> Tuple[float, float]:
+        """Performs one epoch of training using coarse-grained labels."""
+        self.model.train()
+        running_loss, correct, total = 0.0, 0, 0
+
+        train_loader_tqdm = tqdm(
+            self.train_loader, 
+            desc=f"Epoch {epoch+1}/{self.num_epochs} [Coarse Training]", 
+            leave=False
+        )
+        
+        for batch_idx, (images, labels) in enumerate(train_loader_tqdm):
+            images = images.to(self.device, non_blocking=True)
+            labels = labels.to(self.device, non_blocking=True)
+            
+            # --- Convert labels from fine-grained to coarse-grained ---
+            if self.mixup_fn:
+                images, labels = self.mixup_fn(images, labels)
+                # 'labels' is a soft-label tensor for fine classes. Convert it for coarse classes.
+                labels = labels @ self.fine_to_coarse_matrix
+            else:
+                # 'labels' is a tensor of hard-label indices. Use vectorized mapping.
+                labels = self.mapping_tensor[labels]
+                if (labels == -1).any():
+                    raise ValueError("A fine label in the batch does not have a corresponding coarse label mapping.")
+
+            self.optimizer.zero_grad()
+
+            with torch.amp.autocast(device_type=self.device.type):
+                outputs, _ = self.model(images)
+                loss = self.criterion(outputs, labels)
+
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+
+            batch_loss = loss.item()
+            _, predicted = outputs.max(1)
+            targets = labels.argmax(1) if self.mixup_fn else labels
+            
+            batch_correct = predicted.eq(targets).sum().item()
+            batch_total = labels.size(0)
+            batch_acc = 100.0 * batch_correct / batch_total
+
+            running_loss += batch_loss * batch_total
+            correct += batch_correct
+            total += batch_total
+
+            global_step = epoch * len(self.train_loader) + batch_idx
+            self.writer.add_scalar('Loss/train_batch', batch_loss, global_step)
+            self.writer.add_scalar('Accuracy/train_batch', batch_acc, global_step)
+
+            if (batch_idx + 1) % self.log_interval == 0 or (batch_idx + 1) == len(self.train_loader):
+                cumulative_loss = running_loss / total
+                cumulative_acc = 100.0 * correct / total
+                train_loader_tqdm.set_postfix(loss=f"{cumulative_loss:.4f}", accuracy=f"{cumulative_acc:.2f}%")
+
+        epoch_loss = running_loss / total
+        epoch_acc = 100.0 * correct / total
+        return epoch_loss, epoch_acc
+
+    def validate(self, epoch: int) -> Tuple[float, float]:
+        """Performs one epoch of validation using coarse-grained labels."""
+        self.model.eval()
+        val_loss, correct, total = 0.0, 0, 0
+
+        val_loader_tqdm = tqdm(
+            self.val_loader, 
+            desc=f"Epoch {epoch+1}/{self.num_epochs} [Coarse Validation]", 
+            leave=False
+        )
+
+        with torch.no_grad():
+            for batch_idx, (images, labels) in enumerate(val_loader_tqdm):
+                images = images.to(self.device, non_blocking=True)
+                labels = labels.to(self.device, non_blocking=True)
+
+                # --- Convert ground truth labels to coarse-grained labels ---
+                labels = self.mapping_tensor[labels]
+                if (labels == -1).any():
+                    raise ValueError("A fine label in the validation batch does not have a corresponding coarse label mapping.")
+
+                with torch.amp.autocast(device_type=self.device.type):
+                    outputs, _ = self.model(images)
+                    loss = self.val_criterion(outputs, labels)
+
+                batch_loss = loss.item()
+                _, predicted = outputs.max(1)
+                batch_correct = predicted.eq(labels).sum().item()
+                batch_total = labels.size(0)
+
+                val_loss += batch_loss * batch_total
+                correct += batch_correct
+                total += batch_total
+
+                global_step = epoch * len(self.train_loader) + len(self.train_loader) + batch_idx
+                batch_acc = 100.0 * batch_correct / batch_total
+                self.writer.add_scalar('Loss/val_batch', batch_loss, global_step)
+                self.writer.add_scalar('Accuracy/val_batch', batch_acc, global_step)
+
+                if (batch_idx + 1) % self.log_interval == 0 or (batch_idx + 1) == len(self.val_loader):
+                    cumulative_loss = val_loss / total
+                    cumulative_acc = 100.0 * correct / total
+                    val_loader_tqdm.set_postfix(loss=f"{cumulative_loss:.4f}", accuracy=f"{cumulative_acc:.2f}%")
+
+        epoch_loss = val_loss / total
+        epoch_acc = 100.0 * correct / total
+        return epoch_loss, epoch_acc
