@@ -240,14 +240,8 @@ def test_taus(circuits: Set[str | Set[Tuple[str, str]]], dataloader, coarse_labe
         model.eval()
         correct, total = 0.0, 0
 
-        dataloader_tqdm = tqdm(
-            dataloader,
-            desc=f"[Validation]",
-            leave=False
-        )
-
         with torch.no_grad():
-            for batch_idx, (images, labels) in enumerate(dataloader_tqdm):
+            for batch_idx, (images, labels) in enumerate(dataloader):
                 images = images.to(device, non_blocking=True)
                 labels = labels.cpu()  # Move labels to CPU for in-place apply_
                 labels.apply_(lambda x: fine_label_to_coarse.get(x, x))
@@ -289,8 +283,6 @@ def test_taus(circuits: Set[str | Set[Tuple[str, str]]], dataloader, coarse_labe
         start_epoch = checkpoint['epoch']
         best_acc = checkpoint['best_acc']
 
-        print(f"Checkpoint loaded. Resuming from epoch {start_epoch + 1} with best accuracy {best_acc:.2f}%.")
-
     import time
 
     # test original model:
@@ -299,14 +291,14 @@ def test_taus(circuits: Set[str | Set[Tuple[str, str]]], dataloader, coarse_labe
     orginal_model_acc = get_accuracy_on_coarse_labels(vit, dataloader, device, coarse_model=False)
     print(f"Original model accuracy: {orginal_model_acc}")
 
-    warmup_iters = 1
-    test_iters = 3
+    warmup_iters = 3
+    test_iters = 10
 
     for tau, circuit in circuits.items():
         vit = model.ViT(config).to(device)
+        print("\nTesting model with tau", tau)
         load_checkpoint(vit, paths.chekpoints / "vit1.pth")
         vit.retain_circuit(circuit)
-        print("Testing model with tau", tau)
 
         # Warm-up
         for _ in range(warmup_iters):
