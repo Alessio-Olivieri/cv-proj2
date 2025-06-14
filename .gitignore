@@ -3,7 +3,6 @@ data/animal_valid.pkl
 data/animal_train.pkl
 data/train.pkl
 data/valid.pkl
-logs/*
 .ipynb_checkpoints
 ml-venv-cpu
 __pycache__
