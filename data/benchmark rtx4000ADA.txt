@@ -1,0 +1,123 @@
+Checkpoint loaded. Resuming from epoch 397 with best accuracy 26.97%.
+                                                           
+Original model accuracy: 60.06896551724138
+Checkpoint loaded. Resuming from epoch 397 with best accuracy 26.97%.
+Pruning 0 unused MLP layers...
+Pruning 0 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Testing model with tau 0.0001
+                                                           
+Accuracy: 60.06896551724138 | Avg Time over 3 runs: 3.1808121744791666 seconds
+Checkpoint loaded. Resuming from epoch 397 with best accuracy 26.97%.
+Pruning 0 unused MLP layers...
+Pruning 0 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Testing model with tau 0.0005
+                                                           
+Accuracy: 60.06896551724138 | Avg Time over 3 runs: 3.3248758138020835 seconds
+Checkpoint loaded. Resuming from epoch 397 with best accuracy 26.97%.
+Pruning 0 unused MLP layers...
+Pruning 7 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Testing model with tau 0.001
+                                                           
+Accuracy: 60.172413793103445 | Avg Time over 3 runs: 3.2313787434895835 seconds
+Checkpoint loaded. Resuming from epoch 397 with best accuracy 26.97%.
+Pruning 0 unused MLP layers...
+Pruning 26 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Testing model with tau 0.005
+                                                           
+Accuracy: 49.13793103448276 | Avg Time over 3 runs: 3.204301188151042 seconds
+Checkpoint loaded. Resuming from epoch 397 with best accuracy 26.97%.
+Pruning 0 unused MLP layers...
+Pruning 41 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Testing model with tau 0.01
+                                                           
+Accuracy: 31.82758620689655 | Avg Time over 3 runs: 3.1933037109374998 seconds
+Checkpoint loaded. Resuming from epoch 397 with best accuracy 26.97%.
+Pruning 0 unused MLP layers...
+Pruning 48 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Testing model with tau 0.05
+                                                           
+Accuracy: 6.896551724137931 | Avg Time over 3 runs: 3.2307185058593753 seconds
+Checkpoint loaded. Resuming from epoch 397 with best accuracy 26.97%.
+Pruning 3 unused MLP layers...
+Pruning 48 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Testing model with tau 0.1
+                                                           
+Accuracy: 8.620689655172415 | Avg Time over 3 runs: 3.20207958984375 seconds
+Checkpoint loaded. Resuming from epoch 397 with best accuracy 26.97%.
+Pruning 3 unused MLP layers...
+Pruning 48 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Testing model with tau 0.2
+                                                           
+Accuracy: 8.620689655172415 | Avg Time over 3 runs: 3.2388056640625003 seconds
+Checkpoint loaded. Resuming from epoch 397 with best accuracy 26.97%.
+Pruning 3 unused MLP layers...
+Pruning 48 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Testing model with tau 0.3
+                                                           
+Accuracy: 8.620689655172415 | Avg Time over 3 runs: 3.2212481282552083 seconds
+Checkpoint loaded. Resuming from epoch 397 with best accuracy 26.97%.
+Pruning 4 unused MLP layers...
+Pruning 48 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Testing model with tau 0.4
+                                                           
+Accuracy: 8.620689655172415 | Avg Time over 3 runs: 3.0961822102864587 seconds
+Checkpoint loaded. Resuming from epoch 397 with best accuracy 26.97%.
+Pruning 4 unused MLP layers...
+Pruning 48 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Testing model with tau 0.5
+                                                           
+Accuracy: 8.620689655172415 | Avg Time over 3 runs: 3.149993408203125 seconds
+Checkpoint loaded. Resuming from epoch 397 with best accuracy 26.97%.
+Pruning 4 unused MLP layers...
+Pruning 48 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Testing model with tau 0.6
+                                                           
+Accuracy: 8.620689655172415 | Avg Time over 3 runs: 3.08873828125 seconds
+Checkpoint loaded. Resuming from epoch 397 with best accuracy 26.97%.
+Pruning 4 unused MLP layers...
+Pruning 48 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Testing model with tau 0.7
+                                                           
+Accuracy: 8.620689655172415 | Avg Time over 3 runs: 3.1799784342447914 seconds
+Checkpoint loaded. Resuming from epoch 397 with best accuracy 26.97%.
+Pruning 4 unused MLP layers...
+Pruning 48 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Testing model with tau 0.8
+                                                           
+Accuracy: 8.620689655172415 | Avg Time over 3 runs: 3.121033121744792 seconds
+Checkpoint loaded. Resuming from epoch 397 with best accuracy 26.97%.
+Pruning 4 unused MLP layers...
+Pruning 48 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Testing model with tau 0.9
+                                                           
+Accuracy: 8.620689655172415 | Avg Time over 3 runs: 3.0938041178385416 seconds

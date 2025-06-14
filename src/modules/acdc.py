@@ -232,63 +232,65 @@ def run_ACDC_optimized(
     return circuit_edges
     
 
-def test_taus(circuits: Set[str | Set[Tuple[str, str]]], dataloader, coarse_labels, config, device):
-    def get_accuracy_on_coarse_labels(model, dataloader, device, coarse_model=False) -> float:
-        fine_label_to_coarse = {fl: cli for cli, cl in enumerate(coarse_labels.values()) for fl in cl}
-        coarse_to_name = {i: cl for i, cl in enumerate(coarse_labels.keys())}
+def get_accuracy_on_coarse_labels(model, dataloader, device, coarse_labels, coarse_model=False) -> float:
+    fine_label_to_coarse = {fl: cli for cli, cl in enumerate(coarse_labels.values()) for fl in cl}
+    coarse_to_name = {i: cl for i, cl in enumerate(coarse_labels.keys())}
 
-        model.eval()
-        correct, total = 0.0, 0
+    model.eval()
+    correct, total = 0.0, 0
 
-        with torch.no_grad():
-            for batch_idx, (images, labels) in enumerate(dataloader):
-                images = images.to(device, non_blocking=True)
-                labels = labels.cpu()  # Move labels to CPU for in-place apply_
-                labels.apply_(lambda x: fine_label_to_coarse.get(x, x))
-                labels = labels.to(device, non_blocking=True)  # Move back to device
+    with torch.no_grad():
+        for batch_idx, (images, labels) in enumerate(dataloader):
+            images = images.to(device, non_blocking=True)
+            labels = labels.cpu()  # Move labels to CPU for in-place apply_
+            labels.apply_(lambda x: fine_label_to_coarse.get(x, x))
+            labels = labels.to(device, non_blocking=True)  # Move back to device
 
-                with torch.amp.autocast(device_type=device.type, enabled=(device.type == "cuda")):
-                    outputs, _ = model(images)
+            with torch.amp.autocast(device_type=device.type, enabled=(device.type == "cuda")):
+                outputs, _ = model(images)
 
-                _, predicted = outputs.max(1)
-                if not coarse_model:
-                    predicted = predicted.cpu()
-                    predicted.apply_(lambda x: fine_label_to_coarse.get(x, x))
-                    predicted = predicted.to(device)
+            _, predicted = outputs.max(1)
+            if not coarse_model:
+                predicted = predicted.cpu()
+                predicted.apply_(lambda x: fine_label_to_coarse.get(x, x))
+                predicted = predicted.to(device)
 
-                batch_correct = predicted.eq(labels).sum().item()
-                batch_total = labels.size(0)
+            batch_correct = predicted.eq(labels).sum().item()
+            batch_total = labels.size(0)
 
-                correct += batch_correct
-                total += batch_total
+            correct += batch_correct
+            total += batch_total
 
-        epoch_acc = 100.0 * correct / total
-        return epoch_acc
+    epoch_acc = 100.0 * correct / total
+    return epoch_acc
 
-    def load_checkpoint(model, path: str):
-        """Loads training state from a checkpoint file."""
-        checkpoint = torch.load(path, map_location=device)
-        model_state_dict = checkpoint['state_dict']
+def load_checkpoint(model, path: str, device):
+    """Loads training state from a checkpoint file."""
+    checkpoint = torch.load(path, map_location=device)
+    model_state_dict = checkpoint['state_dict']
 
-        if isinstance(model, torch.nn.DataParallel):
-            model.load_state_dict(model_state_dict)
-        else:
-            from collections import OrderedDict
-            new_state_dict = OrderedDict()
-            for k, v in model_state_dict.items():
-                name = k[7:] if k.startswith('module.') else k
-                new_state_dict[name] = v
-            model.load_state_dict(new_state_dict)
+    if isinstance(model, torch.nn.DataParallel):
+        model.load_state_dict(model_state_dict)
+    else:
+        from collections import OrderedDict
+        new_state_dict = OrderedDict()
+        for k, v in model_state_dict.items():
+            name = k[7:] if k.startswith('module.') else k
+            new_state_dict[name] = v
+        model.load_state_dict(new_state_dict)
 
-        start_epoch = checkpoint['epoch']
-        best_acc = checkpoint['best_acc']
+    start_epoch = checkpoint['epoch']
+    best_acc = checkpoint['best_acc']
+
+def test_taus(circuits: Set[str | Set[Tuple[str, str]]], dataloader, coarse_labels, config, device, base_model="vit1.pth"):
+
 
     import time
 
     # test original model:
     vit = model.ViT(config).to(device)
-    load_checkpoint(vit, paths.chekpoints / "vit1.pth")
-    orginal_model_acc = get_accuracy_on_coarse_labels(vit, dataloader, device, coarse_model=False)
+    load_checkpoint(vit, paths.chekpoints / base_model, device)
+    orginal_model_acc = get_accuracy_on_coarse_labels(vit, dataloader, device, coarse_labels, coarse_model=False)
     print(f"Original model accuracy: {orginal_model_acc}")
 
     warmup_iters = 3
@@ -297,12 +299,12 @@ def test_taus(circuits: Set[str | Set[Tuple[str, str]]], dataloader, coarse_labe
     for tau, circuit in circuits.items():
         vit = model.ViT(config).to(device)
         print("\nTesting model with tau", tau)
-        load_checkpoint(vit, paths.chekpoints / "vit1.pth")
+        load_checkpoint(vit, paths.chekpoints / base_model, device)
         vit.retain_circuit(circuit)
 
         # Warm-up
         for _ in range(warmup_iters):
-            _ = get_accuracy_on_coarse_labels(vit, dataloader, device, coarse_model=False)
+            _ = get_accuracy_on_coarse_labels(vit, dataloader, device, coarse_labels, coarse_model=False)
 
         # Timing
         total_time = 0.0
@@ -312,7 +314,7 @@ def test_taus(circuits: Set[str | Set[Tuple[str, str]]], dataloader, coarse_labe
                 end_event = torch.cuda.Event(enable_timing=True)
                 torch.cuda.synchronize()
                 start_event.record()
-                acc = get_accuracy_on_coarse_labels(vit, dataloader, device, coarse_model=False)
+                acc = get_accuracy_on_coarse_labels(vit, dataloader, device, coarse_labels, coarse_model=False)
                 end_event.record()
                 torch.cuda.synchronize()
                 elapsed_time = start_event.elapsed_time(end_event) / 1000.0  # Convert ms to sec

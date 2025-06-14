@@ -1,0 +1,125 @@
+Testing model with tau 0.001
+Pruning 0 unused MLP layers...
+Pruning 7 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Accuracy: 60.13793103448276 | Avg Time over 10 runs: 6.606388831138611 seconds
+
+Testing model with tau 0.002
+Pruning 0 unused MLP layers...
+Pruning 14 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Accuracy: 56.96551724137931 | Avg Time over 10 runs: 6.501619791984558 seconds
+
+Testing model with tau 0.003
+Pruning 0 unused MLP layers...
+Pruning 18 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Accuracy: 56.10344827586207 | Avg Time over 10 runs: 5.169708943367004 seconds
+
+Testing model with tau 0.004
+Pruning 0 unused MLP layers...
+Pruning 18 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Accuracy: 56.10344827586207 | Avg Time over 10 runs: 5.18979434967041 seconds
+
+Testing model with tau 0.0001
+Pruning 0 unused MLP layers...
+Pruning 0 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Accuracy: 60.06896551724138 | Avg Time over 10 runs: 6.558480310440063 seconds
+
+Testing model with tau 0.0005
+Pruning 0 unused MLP layers...
+Pruning 0 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Accuracy: 60.06896551724138 | Avg Time over 10 runs: 6.655901598930359 seconds
+
+Testing model with tau 0.005
+Pruning 0 unused MLP layers...
+Pruning 26 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Accuracy: 49.06896551724138 | Avg Time over 10 runs: 4.624938249588013 seconds
+
+Testing model with tau 0.01
+Pruning 0 unused MLP layers...
+Pruning 41 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Accuracy: 31.82758620689655 | Avg Time over 10 runs: 3.5499412059783935 seconds
+
+Testing model with tau 0.05
+Pruning 0 unused MLP layers...
+Pruning 48 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Accuracy: 6.896551724137931 | Avg Time over 10 runs: 3.016443300247192 seconds
+
+Testing model with tau 0.1
+Pruning 3 unused MLP layers...
+Pruning 48 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Accuracy: 8.620689655172415 | Avg Time over 10 runs: 2.463484597206116 seconds
+
+Testing model with tau 0.2
+Pruning 3 unused MLP layers...
+Pruning 48 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Accuracy: 8.620689655172415 | Avg Time over 10 runs: 2.454503607749939 seconds
+
+Testing model with tau 0.3
+Pruning 3 unused MLP layers...
+Pruning 48 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Accuracy: 8.620689655172415 | Avg Time over 10 runs: 2.4176875352859497 seconds
+
+Testing model with tau 0.4
+Pruning 4 unused MLP layers...
+Pruning 48 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Accuracy: 8.620689655172415 | Avg Time over 10 runs: 2.2649768590927124 seconds
+
+Testing model with tau 0.5
+Pruning 4 unused MLP layers...
+Pruning 48 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Accuracy: 8.620689655172415 | Avg Time over 10 runs: 2.2256245613098145 seconds
+
+Testing model with tau 0.6
+Pruning 4 unused MLP layers...
+Pruning 48 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Accuracy: 8.620689655172415 | Avg Time over 10 runs: 2.260911798477173 seconds
+
+Testing model with tau 0.7
+Pruning 4 unused MLP layers...
+Pruning 48 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Accuracy: 8.620689655172415 | Avg Time over 10 runs: 2.2533190965652468 seconds
+
+Testing model with tau 0.8
+Pruning 4 unused MLP layers...
+Pruning 48 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Accuracy: 8.620689655172415 | Avg Time over 10 runs: 2.283500814437866 seconds
+
+Testing model with tau 0.9
+Pruning 4 unused MLP layers...
+Pruning 48 unused attention heads...
+
+Model pruned. Ready for retraining on the circuit.
+Accuracy: 8.620689655172415 | Avg Time over 10 runs: 2.250795102119446 seconds

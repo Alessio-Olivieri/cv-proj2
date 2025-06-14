@@ -1,5 +1,6 @@
 # checkpoints/*
-data/*
+data/animal_valid.pkl
+data/animal_train.pkl
 data/train.pkl
 data/valid.pkl
 logs/*
