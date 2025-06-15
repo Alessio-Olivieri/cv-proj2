@@ -103,15 +103,6 @@ def cache_all_activations(
     
     return all_clean_samples, all_clean_activations, all_corrupted_activations, all_clean_logprobs
 
-
-# Imports and helper classes (PatchInput, SaveActivations) remain the same.
-# ...
-
-# cache_all_activations function also remains the same.
-# ...
-
-# The optimized function with the .expand() refinement
-
 def run_ACDC_optimized(
     model: nn.Module, 
     tau: float, 
@@ -163,19 +154,9 @@ def run_ACDC_optimized(
                 num_parents = len(parents)
                 batch_size = clean_samples.shape[0]
                 
-                # --- CORRECTED & GENERALIZED TENSOR EXPANSION ---
-                # This now works for any input shape, e.g., [B, C, H, W] or [B, S]
-                # 1. Unsqueeze to [1, B, D1, D2, ...]
-                # 2. Expand to   [P, B, D1, D2, ...]
-                # 3. Reshape to  [P * B, D1, D2, ...]
-                
-                # Create a view of the tensor repeated `num_parents` times
-                # This uses almost no extra memory.
                 expanded_view = clean_samples.unsqueeze(0).expand(num_parents, *([-1] * clean_samples.dim()))
                 
-                # Reshape to the final batch shape for the model
                 batched_clean_samples = expanded_view.reshape(-1, *clean_samples.shape[1:])
-                # --- END CORRECTION ---
 
                 clean_src_contributions = []
                 corrupted_src_contributions = []
@@ -196,10 +177,8 @@ def run_ACDC_optimized(
                 
                 patched_logprobs = F.log_softmax(patched_logits, dim=-1)
                 
-                # --- CORRECTED & GENERALIZED TENSOR EXPANSION (for logprobs) ---
                 logprobs_expanded_view = clean_logprobs.unsqueeze(0).expand(num_parents, *([-1] * clean_logprobs.dim()))
                 batched_clean_logprobs = logprobs_expanded_view.reshape(-1, *clean_logprobs.shape[1:])
-                # --- END CORRECTION ---
                 
                 kl_per_sample = F.kl_div(patched_logprobs, batched_clean_logprobs, reduction='none', log_target=True).sum(dim=-1)
                 kl_per_parent_and_sample = kl_per_sample.view(num_parents, batch_size)
@@ -208,7 +187,6 @@ def run_ACDC_optimized(
                 for j, src_node in enumerate(parents):
                     total_kl_for_edges[src_node] += avg_kl_for_batch_corruption[j].item()
 
-        # --- Pruning Decision (unchanged) ---
         num_corruptions = len(corr_acts_list[0]) if corr_acts_list else 0
         num_batches = len(clean_samples_list)
         

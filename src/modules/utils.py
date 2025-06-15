@@ -100,8 +100,6 @@ class ComputationalGraph():
                 if hasattr(head, 'pruned') and head.pruned: continue
                 self.nodes[head_name] = head
         
-        # 2. Build Edges as (src, dst) tuples
-        # Use a set to automatically handle potential duplicates before sorting
         edge_set = set()
         all_potential_source_nodes = [n for n in self.nodes if n != "classifier"]
 
@@ -144,45 +142,31 @@ class ComputationalGraph():
         src_layer, src_type = self._get_node_info(src_name)
 
         if src_type == "head":
-            # This is the crucial logic. We can't use the full W_O layer.
-            # We must create a new linear layer using only the slice of the
-            # W_O weight matrix that corresponds to this specific head.
-
-            # 1. Parse the head index from the source name
-            # e.g., "encoder.blocks.5.attention.heads.3.final_output" -> block 5, head 3
             parts = src_name.split('.')
             block_idx = int(parts[2])
             head_idx = int(parts[5])
 
-            # 2. Get the original MultiHeadAttention output projection layer (W_O)
             mha_module_name = f"encoder.blocks.{block_idx}.attention"
             mha_module = self.model.get_submodule(mha_module_name)
             original_projection = mha_module.output_projection
 
-            # 3. Get necessary dimensions
             d_model = self.model.config["hidden_size"]
             d_head = self.model.config["hidden_size"] // self.model.config["num_attention_heads"]
             
-            # 4. Calculate the start and end columns for slicing W_O's weight
             start_col = head_idx * d_head
             end_col = start_col + d_head
             
-            # 5. Create a new, temporary projection layer for this single head
-            # It maps from d_head -> d_model, with no bias.
             single_head_projection = nn.Linear(d_head, d_model, bias=False)
 
-            # 6. Copy the sliced weights from the original W_O matrix
             with torch.no_grad():
                 # The original_projection.weight is shape (d_model, all_head_size)
-                # We slice the columns corresponding to our head_idx
+                # We slice the columns corresponding to head_idx
                 sliced_weight = original_projection.weight[:, start_col:end_col]
                 single_head_projection.weight.copy_(sliced_weight)
 
             return single_head_projection
 
         elif src_type in ["mlp", "embedding"]:
-            # The output of the MLP and the embedding are already in d_model.
-            # The projection is effectively an identity operation.
             return nn.Identity()
             
         raise ValueError(f"Unknown source type '{src_type}' for node '{src_name}'")

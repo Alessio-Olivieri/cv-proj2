@@ -7,9 +7,6 @@ from torch.optim.lr_scheduler import _LRScheduler
 from torch.utils.tensorboard import SummaryWriter
 from typing import Tuple, Optional, Dict, Any, Union, List
 
-# Assuming `modules.paths` is a custom module you have. If not, this can be removed.
-# from modules import paths 
-
 class Trainer:
     def __init__(
         self,
@@ -30,7 +27,7 @@ class Trainer:
         checkpoint_interval: int = None,
         mixup_fn: Optional[callable] = None,
         model_name: str = "interpolated_vit_tiny_imagenet.pth",
-        resume: bool = False  # <-- NEW: Flag to control resuming
+        resume: bool = False  
     ):
         self.model = model
         self.train_loader = train_loader
@@ -50,11 +47,9 @@ class Trainer:
         self.mixup_fn = mixup_fn
         self.model_name = model_name
         
-        # --- MODIFIED: Initialize start_epoch and best_acc ---
         self.start_epoch = 0
         self.best_acc = 0.0
 
-        # --- NEW: Logic to load checkpoint if resuming ---
         if resume:
             checkpoint_path = os.path.join(self.model_dir, 'checkpoint.pth')
             if os.path.exists(checkpoint_path):
@@ -216,7 +211,6 @@ class Trainer:
         no_improv_epochs = 0
         smallest_val_loss = float("inf")
         
-        # --- MODIFIED: Use self.start_epoch in the loop ---
         for epoch in range(self.start_epoch, self.num_epochs):
             train_loss, train_acc = self.train_one_epoch(epoch)
             val_loss, val_acc = self.validate(epoch)
@@ -248,10 +242,6 @@ class Trainer:
 
             if self.checkpoint_interval and (epoch + 1) % self.checkpoint_interval == 0:
                 print(f"Saving periodic checkpoint at epoch {epoch + 1}")
-                # The generic checkpoint is already saved above, so this is slightly redundant
-                # but could be used for specific named checkpoints if needed.
-                # self.save_model(epoch)
-                pass
             
             if no_improv_epochs >= self.early_stop_patience:
                 print(f"Early stopping triggered after {self.early_stop_patience} epochs with no improvement.")

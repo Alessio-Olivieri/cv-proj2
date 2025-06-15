@@ -296,15 +296,8 @@ def contrastive_collate_fn(batch: List[Tuple[Tuple[Any, int], List[Tuple[Any, in
     good_samples = [item[0] for item in batch]
     bad_samples_lists = [item[1] for item in batch]
 
-    # 2. Collate the good samples using the default PyTorch collate function.
-    # This will handle stacking the images and labels correctly.
-    # good_samples is a list of (image, label) tuples.
     collated_good_samples = default_collate(good_samples)
-    # 3. Collate the bad samples. This is the tricky part.
-    # bad_samples_lists is a list of lists: [[(img, lbl), ...], [(img, lbl), ...]]
-    # We want to "transpose" it, so we get a list of batches.
-    
-    # Check if there are any bad samples to process
+
     if not bad_samples_lists or not bad_samples_lists[0]:
         return collated_good_samples, []
 
