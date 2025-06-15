@@ -45,16 +45,10 @@ The full list of class names for the original Tiny ImageNet-200 dataset is avail
 
 ### Prerequisites
 
--   Python 3.10+
--   PyTorch & Torchvision
--   `tqdm`, `graphviz`, `pygraphviz`, `datasets` (from Hugging Face), `matplotlib`
--   (Optional for visualization) `cmapy`
-
 You can install the main dependencies with:
 ```bash
-pip install torch torchvision tqdm datasets matplotlib
-# For graph visualization (optional)
-pip install graphviz pygraphviz cmapy
+pip install -r requirements.txt
+apt-get install python-dev graphviz libgraphviz-dev pkg-config
 ```
 
 ### How to Use
