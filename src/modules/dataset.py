@@ -208,9 +208,6 @@ class ContrastiveWrapper(torch_Dataset):
 
         self.class_to_indices: Dict[str, List[int]] = {name: [] for name in self.coarse_class_names}
         for i in range(len(self.dataset)):
-            # We access the label directly from the underlying dataset's __getitem__
-            # This can be slow but is robust. For HuggingFace datasets,
-            # accessing a column is faster: self.dataset.hf_dataset['label'][i]
             try:
                 _data, fine_label = self.dataset[i]
             except Exception as e:

@@ -9,9 +9,6 @@ from tqdm.auto import tqdm
 
 from modules import utils, model, train, paths
 
-# PatchInput and SaveActivations classes remain the same, but I've included
-# the small correction from our previous discussion for completeness.
-
 class PatchInput(ContextDecorator):
     def __init__(self, module: nn.Module, clean_src_act, corrupted_src_act):
         self.module = module
