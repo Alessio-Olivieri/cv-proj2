@@ -1,9 +1,3 @@
-Of course. Based on your feedback, I've updated the README to more accurately describe the final training step. The key change is clarifying that the pruned architecture is **retrained from scratch** rather than fine-tuned.
-
-Here is the revised README:
-
----
-
 # ViT Pruning using Automated Circuit Discovery (ACDC)
 
 This project provides a comprehensive pipeline for identifying and training a pruned Vision Transformer (ViT) model using the ACDC (Automated Circuit Discovery and Causal analysis) algorithm. The process involves training a baseline ViT, discovering a functional sub-circuit using activation patching, and then **retraining this pruned architecture from scratch** to recover performance.
