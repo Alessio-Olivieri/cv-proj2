@@ -87,7 +87,6 @@ def gen_super_tiny(
 def load(
     split: Literal["train", "validation", "test"],
     tiny: bool = False,
-    transform: Callable = None,
     **tiny_kwargs
 ) -> torch_Dataset:
     """
@@ -135,7 +134,7 @@ def load(
     return dataset
 
 
-def load_animal_dataset(split: Literal["train", "validation", "test"], transform:Callable, tiny=False, **tiny_kwargs) -> Tuple[hf_Dataset, Dict]:
+def load_animal_dataset(split: Literal["train", "validation", "test"], tiny=False, **tiny_kwargs) -> Tuple[hf_Dataset, Dict]:
     coarse_labels_original = {
     "Aquatic": {0, 15, 16, 20, 40},
     "Amphibians & Reptiles": {1, 2, 3, 4, 5},
