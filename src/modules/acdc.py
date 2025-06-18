@@ -295,7 +295,7 @@ def test_taus(circuits: Set[str | Set[Tuple[str, str]]], dataloader, coarse_labe
                 elapsed_time = start_event.elapsed_time(end_event) / 1000.0  # Convert ms to sec
             else:
                 start = time.time()
-                acc = get_accuracy_on_coarse_labels(vit, dataloader, device, coarse_model=False)
+                acc = get_accuracy_on_coarse_labels(vit, dataloader, device, coarse_labels, coarse_model=False)
                 end = time.time()
                 elapsed_time = end - start
 
